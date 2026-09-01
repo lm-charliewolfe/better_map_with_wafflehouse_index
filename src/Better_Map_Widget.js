@@ -14,7 +14,7 @@
 // * Use hyphen-minus (-) instead of em/en dashes, straight ' and " for quotes, and ... for ellipsis.
 
 // ------------------------------------------------------------
-var version = "3.72 CDN + WHI";
+var version = "3.73 CDN + WHI";
 var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
 var wafflehouseHideOpen = false;
 var wafflehouseDataCache = null;
@@ -60,6 +60,10 @@ var releaseNotes = `
 		<li>Fixed the &quot;Force refresh the map data&quot; button performing a partial (differential) refresh instead of a full rebuild.</li>
 		<li>Fixed the map not re-fitting its zoom reliably after a toolbar filter change.</li>
 		<li>Fixed duplicate refresh timers and orphaned Google Map instances that could accumulate when the widget was saved while the map was still initializing.</li>
+	</ul>
+	<h3>Version 3.73 CDN + WHI</h3>
+	<ul>
+		<li>Moved Weather and Events toggles back into the gear menu while keeping them as separate on/off controls.</li>
 	</ul>
 	<h3>Version 3.72 CDN + WHI</h3>
 	<ul>
@@ -509,40 +513,6 @@ betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
 				</span>
 			</span>
 
-			<span id="weatherOptionsArea">
-				<span data-title="Show weather radar on the map">
-					<input type="checkbox" id="weather" name="weather" value="weather" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');" />
-					<label for="weather">Weather</label>
-				</span>
-
-				<span id="weatherTypeOptions" data-title="Which source to use for weather radar">
-					<select id="weatherType" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
-						<option value="radar" selected>Global Radar</option>
-						<option value="nexrad-n0q-900913">US NEXRAD Radar</option>
-						<option value="xweather">Xweather Global Radar</option>
-						<option value="openweather">OpenWeather Radar</option>
-					</select>
-				</span>
-			</span>
-
-			<span id="eventsOptionsArea">
-				<span data-title="Show event overlays such as earthquakes, flooding, or Waffle House Index">
-					<input type="checkbox" id="events" name="events" value="events" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');" />
-					<label for="events">Events</label>
-				</span>
-
-				<span id="eventsOptions" data-title="Which event overlay to show on the map">
-					<select id="otherWeatherOverlays" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
-						<option value="none">None</option>
-						<option value="earthquakes" selected>Earthquakes (mag 6+, 7d)</option>
-						<option value="us-flooding">US Flooding</option>
-						<option value="us-poweroutages">US Power Outages</option>
-						<option value="wildfires">Wildfires</option>
-						<option value="wafflehouse">Waffle House Index</option>
-					</select>
-				</span>
-			</span>
-
 			<span id="wafflehouseOptions" style="display: none;" data-title="Waffle House Index options">
 				<input type="checkbox" id="wafflehouseHideOpen" name="wafflehouseHideOpen" value="wafflehouseHideOpen" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshWafflehouseOverlay');" />
 				<label for="wafflehouseHideOpen">Hide open</label>
@@ -560,6 +530,40 @@ betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
 					     enableWeather, which refetched and rebuilt every weather overlay. -->
 					<input type="checkbox" id="autoZoom" name="autoZoom" value="autoZoom" checked="true" />
 					<label for="autoZoom">Auto-zoom</label>
+				</span>
+
+				<span id="weatherOptionsArea">
+					<span data-title="Show weather radar on the map">
+						<input type="checkbox" id="weather" name="weather" value="weather" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');" />
+						<label for="weather">Weather</label>
+					</span>
+
+					<span id="weatherTypeOptions" data-title="Which source to use for weather radar">
+						<select id="weatherType" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
+							<option value="radar" selected>Global Radar</option>
+							<option value="nexrad-n0q-900913">US NEXRAD Radar</option>
+							<option value="xweather">Xweather Global Radar</option>
+							<option value="openweather">OpenWeather Radar</option>
+						</select>
+					</span>
+				</span>
+
+				<span id="eventsOptionsArea">
+					<span data-title="Show event overlays such as earthquakes, flooding, or Waffle House Index">
+						<input type="checkbox" id="events" name="events" value="events" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');" />
+						<label for="events">Events</label>
+					</span>
+
+					<span id="eventsOptions" data-title="Which event overlay to show on the map">
+						<select id="otherWeatherOverlays" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
+							<option value="none">None</option>
+							<option value="earthquakes" selected>Earthquakes (mag 6+, 7d)</option>
+							<option value="us-flooding">US Flooding</option>
+							<option value="us-poweroutages">US Power Outages</option>
+							<option value="wildfires">Wildfires</option>
+							<option value="wafflehouse">Waffle House Index</option>
+						</select>
+					</span>
 				</span>
 
 				<span id="markerStyleOptions">
