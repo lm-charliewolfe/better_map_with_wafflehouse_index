@@ -1,7 +1,11 @@
 <!--
-	Better Map Widget
-	Version 1.30 - CDN Version (Waffle House Index fork)
+	Better Map Widget - CDN Loader WHI 3.72
+	Version 1.31 - CDN Version (Waffle House Index fork)
 	Developed by Kevin Ford; Waffle House overlay by Charlie Wolfe fork
+
+	IMPORTANT: After updating on GitHub, re-paste this ENTIRE file into your LogicMonitor
+	Text widget Source and save. The dashboard keeps a copy of whatever was pasted here;
+	refreshing the browser alone does not update the loader if this file was never re-pasted.
 
 	Some of the ideas behind this project:
 	* Support for thousands pins on the map, though be aware that Google Maps will start to struggle if too many pins.
@@ -250,23 +254,18 @@
 
 <script>
 	(function loadBetterMapAssets(loaderScript) {
-		var widgetBase = "https://cdn.jsdelivr.net/gh/lm-charliewolfe/better_map_with_wafflehouse_index@main/src/";
+		var widgetRelease = "5ddeb1a";
+		var widgetBase = "https://cdn.jsdelivr.net/gh/lm-charliewolfe/better_map_with_wafflehouse_index@" + widgetRelease + "/src/";
+		var widgetBaseFallback = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/" + widgetRelease + "/src/";
 		window.__betterMapWidgetBase = widgetBase;
 		// var catchpointBeacon = "https://g.3gl.net/jp/14586/latest/InitialLoadScript.js";
 		var registry = window.__betterMapWidgetRegistry = window.__betterMapWidgetRegistry || { instances: Object.create(null) };
 		if (!registry.instances) {
 			registry.instances = Object.create(null);
 		}
-		// One cache-busting stamp per page load, held on the shared registry so that every widget
-		// instance on the dashboard requests the same URL. A full page refresh starts with a new
-		// registry and therefore always pulls the currently published JS and CSS, while additional
-		// instances on that same page reuse what the first one already fetched rather than each
-		// pulling another ~294 KB. Do not replace this with a fixed version string: this loader is
-		// pasted into a dashboard once, so a hard-coded version would freeze that dashboard on
-		// whatever assets were current the day it was pasted...
-		if (!registry.assetCacheBuster) {
-			registry.assetCacheBuster = "whi-372-" + String(Date.now());
-		}
+		// Fresh cache-buster every time this loader runs (widget save or page load) so LogicMonitor
+		// never keeps serving an old Better_Map_Widget.js from the browser or CDN cache...
+		registry.assetCacheBuster = "whi-372-" + widgetRelease + "-" + String(Date.now());
 		var assetCacheBuster = registry.assetCacheBuster;
 
 		// Function to find a previous sibling element matching the supplied test...
@@ -339,6 +338,20 @@
 				};
 				appendToHead(script);
 			});
+		}
+
+		function loadScriptWithFallback(urls, options) {
+			var index = 0;
+			function tryNext() {
+				if (index >= urls.length) {
+					return Promise.reject(new Error("Failed to load script from all sources"));
+				}
+				return loadScript(urls[index], options).catch(function() {
+					index++;
+					return tryNext();
+				});
+			}
+			return tryNext();
 		}
 
 		// Function to load an external stylesheet for the widget...
@@ -435,7 +448,12 @@
 		});
 
 		loadStylesheet(widgetBase + "Better_Map_Widget.css?ts=" + assetCacheBuster);
-		loadScript(widgetBase + "Better_Map_Widget.js?ts=" + assetCacheBuster, { defer: true, instanceId: instanceId });
+		loadScriptWithFallback([
+			widgetBase + "Better_Map_Widget.js?ts=" + assetCacheBuster,
+			widgetBaseFallback + "Better_Map_Widget.js?ts=" + assetCacheBuster
+		], { defer: true, instanceId: instanceId }).catch(function(error) {
+			console.error("Better Map Widget failed to load:", error);
+		});
 		// loadScript(catchpointBeacon + "?ts=" + assetCacheBuster, { defer: true });
 	})(document.currentScript);
 </script>
