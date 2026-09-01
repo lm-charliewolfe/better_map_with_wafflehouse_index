@@ -14,7 +14,7 @@
 // * Use hyphen-minus (-) instead of em/en dashes, straight ' and " for quotes, and ... for ellipsis.
 
 // ------------------------------------------------------------
-var version = "3.77 CDN + WHI";
+var version = "3.78 CDN + WHI";
 var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
 var wafflehouseHideOpen = false;
 var wafflehouseDataCache = null;
@@ -61,6 +61,10 @@ var releaseNotes = `
 		<li>Fixed the &quot;Force refresh the map data&quot; button performing a partial (differential) refresh instead of a full rebuild.</li>
 		<li>Fixed the map not re-fitting its zoom reliably after a toolbar filter change.</li>
 		<li>Fixed duplicate refresh timers and orphaned Google Map instances that could accumulate when the widget was saved while the map was still initializing.</li>
+	</ul>
+	<h3>Version 3.78 CDN + WHI</h3>
+	<ul>
+		<li>Events overlay picker is now a click-to-open dropdown with checkboxes; when more than one overlay is selected the collapsed label reads "(Multiple)".</li>
 	</ul>
 	<h3>Version 3.77 CDN + WHI</h3>
 	<ul>
@@ -578,14 +582,20 @@ betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
 						<label for="events">Events</label>
 					</span>
 
-					<span id="eventsOptions" data-title="Choose one or more event overlays (Ctrl+click or Cmd+click for multiple)">
-						<select id="otherWeatherOverlays" multiple size="5" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
-							<option value="earthquakes" selected>Earthquakes (mag 6+, 7d)</option>
-							<option value="us-flooding">US Flooding</option>
-							<option value="us-poweroutages">US Power Outages</option>
-							<option value="wildfires">Wildfires</option>
-							<option value="wafflehouse">Waffle House Index</option>
-						</select>
+					<span id="eventsOptions" data-title="Choose one or more event overlays">
+						<span id="otherWeatherOverlays" class="events-overlay-picker">
+							<button type="button" id="eventsOverlayToggle" class="events-overlay-toggle" aria-haspopup="listbox" aria-expanded="false" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'toggleEventsOverlayDropdown'); event.stopPropagation();">
+								<span id="eventsOverlayLabel">Earthquakes (mag 6+, 7d)</span>
+								<span class="events-overlay-chevron" aria-hidden="true">▾</span>
+							</button>
+							<div id="eventsOverlayMenu" class="events-overlay-menu" role="listbox" hidden>
+								<label class="events-overlay-option"><input type="checkbox" class="events-overlay-checkbox" value="earthquakes" checked onclick="betterMapWidgetCall('${betterMapInstanceId}', 'handleEventsOverlayCheckboxChange'); event.stopPropagation();" /> Earthquakes (mag 6+, 7d)</label>
+								<label class="events-overlay-option"><input type="checkbox" class="events-overlay-checkbox" value="us-flooding" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'handleEventsOverlayCheckboxChange'); event.stopPropagation();" /> US Flooding</label>
+								<label class="events-overlay-option"><input type="checkbox" class="events-overlay-checkbox" value="us-poweroutages" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'handleEventsOverlayCheckboxChange'); event.stopPropagation();" /> US Power Outages</label>
+								<label class="events-overlay-option"><input type="checkbox" class="events-overlay-checkbox" value="wildfires" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'handleEventsOverlayCheckboxChange'); event.stopPropagation();" /> Wildfires</label>
+								<label class="events-overlay-option"><input type="checkbox" class="events-overlay-checkbox" value="wafflehouse" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'handleEventsOverlayCheckboxChange'); event.stopPropagation();" /> Waffle House Index</label>
+							</div>
+						</span>
 					</span>
 
 					<span id="wafflehouseOptions" style="display: none;" data-title="Show only unexpectedly closed Waffle House locations">
@@ -890,6 +900,13 @@ function debounce(fn, delay = 300) {
 var __LMBMW_MAPOPTS_COOKIE_BASE = "lm_bmw_mapOpts_v1";
 var __LMBMW_MAPOPTS_MAX_AGE = 60 * 60 * 24 * 400;
 var __LMBMW_ALLOWED_OVERLAY_VALUES = ["none", "wildfires", "us-poweroutages", "earthquakes", "us-flooding", "wafflehouse"];
+var __LMBMW_EVENT_OVERLAY_LABELS = {
+	earthquakes: "Earthquakes (mag 6+, 7d)",
+	"us-flooding": "US Flooding",
+	"us-poweroutages": "US Power Outages",
+	wildfires: "Wildfires",
+	wafflehouse: "Waffle House Index"
+};
 var __LMBMW_ALLOWED_WEATHER_TYPES = ["radar", "nexrad-n0q-900913", "xweather", "openweather"];
 var __LMBMW_ALLOWED_SOURCE_TYPES = ["groups", "resources", "services"];
 var __LMBMW_MAPOPTS_ELEMENT_TO_KEY = {
@@ -1016,24 +1033,88 @@ function syncMapTypeRadiosFromSourceType() {
 	_dom.radioResources.checked = mapSourceType !== "groups" && mapSourceType !== "services";
 }
 
-// Function to read which event overlays are selected in the multi-select...
+// Function to read the event overlay checkbox elements...
+function getEventOverlayCheckboxes() {
+	if (!_dom.eventsOverlayMenu) return [];
+	return Array.from(_dom.eventsOverlayMenu.querySelectorAll(".events-overlay-checkbox"));
+}
+
+// Function to read which event overlays are selected...
 function getSelectedEventOverlays() {
-	if (!_dom.otherWeatherOverlays) return [];
-	return Array.from(_dom.otherWeatherOverlays.selectedOptions)
-		.map(function(option) { return option.value; })
+	return getEventOverlayCheckboxes()
+		.filter(function(checkbox) { return checkbox.checked; })
+		.map(function(checkbox) { return checkbox.value; })
 		.filter(function(value) { return __LMBMW_ALLOWED_OVERLAY_VALUES.indexOf(value) >= 0 && value !== "none"; });
 }
 
-// Function to set which event overlays are selected in the multi-select...
+// Function to update the collapsed Events dropdown label...
+function syncEventsOverlayLabel() {
+	if (!_dom.eventsOverlayLabel) return;
+	const selected = getSelectedEventOverlays();
+	if (!selected.length) {
+		_dom.eventsOverlayLabel.textContent = "None";
+	} else if (selected.length > 1) {
+		_dom.eventsOverlayLabel.textContent = "(Multiple)";
+	} else {
+		_dom.eventsOverlayLabel.textContent = __LMBMW_EVENT_OVERLAY_LABELS[selected[0]] || selected[0];
+	}
+}
+
+// Function to set which event overlays are selected...
 function setSelectedEventOverlays(values) {
-	if (!_dom.otherWeatherOverlays) return;
 	const allowed = Array.isArray(values)
 		? values.filter(function(value) { return __LMBMW_ALLOWED_OVERLAY_VALUES.indexOf(value) >= 0 && value !== "none"; })
 		: [];
-	Array.from(_dom.otherWeatherOverlays.options).forEach(function(option) {
-		option.selected = allowed.indexOf(option.value) >= 0;
+	getEventOverlayCheckboxes().forEach(function(checkbox) {
+		checkbox.checked = allowed.indexOf(checkbox.value) >= 0;
 	});
 	syncAdditionalOverlayVarFromSelect();
+	syncEventsOverlayLabel();
+}
+
+// Function to open or close the Events overlay dropdown...
+function toggleEventsOverlayDropdown() {
+	if (!_dom.otherWeatherOverlays || !_dom.eventsOverlayMenu || !_dom.eventsOverlayToggle) return;
+	const isOpen = _dom.otherWeatherOverlays.classList.toggle("open");
+	_dom.eventsOverlayMenu.hidden = !isOpen;
+	_dom.eventsOverlayToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+}
+
+// Function to close the Events overlay dropdown...
+function closeEventsOverlayDropdown() {
+	if (!_dom.otherWeatherOverlays || !_dom.eventsOverlayMenu || !_dom.eventsOverlayToggle) return;
+	_dom.otherWeatherOverlays.classList.remove("open");
+	_dom.eventsOverlayMenu.hidden = true;
+	_dom.eventsOverlayToggle.setAttribute("aria-expanded", "false");
+}
+
+// Function to handle checkbox changes in the Events overlay dropdown...
+function handleEventsOverlayCheckboxChange() {
+	syncAdditionalOverlayVarFromSelect();
+	syncEventsOverlayLabel();
+	syncWafflehouseOptionsVisibility();
+	saveMapOptionsToCookie({
+		otherWeatherOverlays: (function() {
+			const selected = getSelectedEventOverlays();
+			return selected.length ? selected.join(",") : "none";
+		})()
+	});
+	enableWeather();
+}
+
+// Function to close the Events dropdown when clicking outside it...
+function handleEventsOverlayDocumentClick(event) {
+	if (!_dom.otherWeatherOverlays || !_dom.otherWeatherOverlays.classList.contains("open")) return;
+	if (_dom.otherWeatherOverlays.contains(event.target)) return;
+	closeEventsOverlayDropdown();
+}
+
+// Function to wire up the Events overlay dropdown...
+function initEventsOverlayPicker() {
+	if (!_dom.otherWeatherOverlays || _dom.otherWeatherOverlays.dataset.eventsPickerInit === "1") return;
+	_dom.otherWeatherOverlays.dataset.eventsPickerInit = "1";
+	document.addEventListener("click", handleEventsOverlayDocumentClick);
+	syncEventsOverlayLabel();
 }
 
 // Function to check whether a specific event overlay is selected...
@@ -1131,7 +1212,7 @@ function getMapOptionValueForElement(el) {
 	if (el.id === "markerStyleSelect") {
 		return el.value === "circles" ? "circles" : "pins";
 	}
-	if (el.id === "otherWeatherOverlays") {
+	if (el.id === "otherWeatherOverlays" || (el.classList && el.classList.contains("events-overlay-checkbox"))) {
 		syncAdditionalOverlayVarFromSelect();
 		const selected = getSelectedEventOverlays();
 		return selected.length ? selected.join(",") : "none";
@@ -1523,6 +1604,9 @@ var _dom = {
 	weatherTypeOptions: getBetterMapElementById("weatherTypeOptions"),
 	events: getBetterMapElementById("events"),
 	eventsOptions: getBetterMapElementById("eventsOptions"),
+	eventsOverlayToggle: getBetterMapElementById("eventsOverlayToggle"),
+	eventsOverlayMenu: getBetterMapElementById("eventsOverlayMenu"),
+	eventsOverlayLabel: getBetterMapElementById("eventsOverlayLabel"),
 	wafflehouseOptions: getBetterMapElementById("wafflehouseOptions"),
 	wafflehouseHideOpen: getBetterMapElementById("wafflehouseHideOpen"),
 	optionsToggleArea: getBetterMapElementById("optionsToggleArea"),
@@ -1588,6 +1672,7 @@ _dom.events.checked = getSelectedEventOverlays().length > 0;
 
 syncOverlayOptionsVisibility();
 syncWafflehouseOptionsVisibility();
+initEventsOverlayPicker();
 wafflehouseHideOpen = !!(_dom.wafflehouseHideOpen && _dom.wafflehouseHideOpen.checked);
 
 _dom.markerStyleSelect.value = markerStyle === "circles" ? "circles" : "pins";
@@ -4608,6 +4693,9 @@ function syncOverlayOptionsVisibility() {
 	if (_dom.eventsOptions) {
 		_dom.eventsOptions.style.display = _dom.events.checked ? "inline-flex" : "none";
 	}
+	if (!_dom.events || !_dom.events.checked) {
+		closeEventsOverlayDropdown();
+	}
 }
 
 // Function to show Waffle House-only controls when that overlay is selected...
@@ -5997,6 +6085,7 @@ function toggleMiscOptions() {
 		_dom.optionsToggleArea.style.display = "none";
 		_dom.gearIcon.style.fill = "#aaa";
 		_dom.gearIconChevron.style.display = "none";
+		closeEventsOverlayDropdown();
 	} else {
 		_dom.optionsToggleArea.style.display = "flex";
 		_dom.gearIcon.style.fill = "blue";
@@ -6096,6 +6185,7 @@ function cleanupBetterMapInstance() {
 	debouncedSaveCache.cancel();
 	debouncedHandleMapOptionsAreaChange.cancel();
 	disconnectPendingElementWaiters();
+	document.removeEventListener("click", handleEventsOverlayDocumentClick);
 	document.removeEventListener("DOMContentLoaded", ensureMapInitialized);
 	if (_currentRefreshController && !_currentRefreshController.signal.aborted) {
 		_currentRefreshController.abort();
@@ -6135,12 +6225,14 @@ var betterMapApi = {
 	enableWeather,
 	fitClusterBounds,
 	groupkeyHandler,
+	handleEventsOverlayCheckboxChange,
 	refreshGroupData,
 	refreshWafflehouseOverlay,
 	resetGroupFilter,
 	resetZoom,
 	selectMapType,
 	showReleaseNotes,
+	toggleEventsOverlayDropdown,
 	toggleMiscOptions
 };
 
