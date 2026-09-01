@@ -14,10 +14,11 @@
 // * Use hyphen-minus (-) instead of em/en dashes, straight ' and " for quotes, and ... for ellipsis.
 
 // ------------------------------------------------------------
-var version = "3.73 CDN + WHI";
+var version = "3.74 CDN + WHI";
 var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
 var wafflehouseHideOpen = false;
 var wafflehouseDataCache = null;
+var wafflehouseClosedIconSpec = null;
 var releaseNotes = `
 	<h2>Release Notes</h2>
 	<p>Latest releases can be found at <a href="https://github.com/logicmonitor/custom_widgets" target="_blank">https://github.com/logicmonitor/custom_widgets</a></p>
@@ -60,6 +61,10 @@ var releaseNotes = `
 		<li>Fixed the &quot;Force refresh the map data&quot; button performing a partial (differential) refresh instead of a full rebuild.</li>
 		<li>Fixed the map not re-fitting its zoom reliably after a toolbar filter change.</li>
 		<li>Fixed duplicate refresh timers and orphaned Google Map instances that could accumulate when the widget was saved while the map was still initializing.</li>
+	</ul>
+	<h3>Version 3.74 CDN + WHI</h3>
+	<ul>
+		<li>Temporarily closed Waffle House locations now use a custom map pin icon instead of a red dot.</li>
 	</ul>
 	<h3>Version 3.73 CDN + WHI</h3>
 	<ul>
@@ -295,6 +300,18 @@ function getBetterMapWidgetAssetBase() {
 		return scriptSrc.replace(/Better_Map_Widget\.js.*$/, '');
 	}
 	return 'https://cdn.jsdelivr.net/gh/logicmonitor/custom_widgets@main/src/';
+}
+
+// Function to build the icon spec for temporarily closed Waffle House locations...
+function getWafflehouseClosedIconStyle() {
+	if (!wafflehouseClosedIconSpec) {
+		wafflehouseClosedIconSpec = {
+			url: getBetterMapWidgetAssetBase() + "icons/closed-wafflehouse.png",
+			scaledSize: new google.maps.Size(40, 40),
+			anchor: new google.maps.Point(20, 40)
+		};
+	}
+	return wafflehouseClosedIconSpec;
 }
 
 // Function to find or create the map container for this widget instance...
@@ -4652,17 +4669,16 @@ async function loadWafflehouseOverlay() {
 
 	map.data.setStyle(function(feature) {
 		const status = (feature.getProperty("status") || "").toLowerCase();
-		let fillColor = "#2ecc71";
 
-		switch (status) {
-			case "open":
-				fillColor = "#2ecc71";
-				break;
-			case "temporarily_closed":
-				fillColor = "#e74c3c";
-				break;
-			default:
-				fillColor = "#f1c40f";
+		if (status === "temporarily_closed") {
+			return { icon: getWafflehouseClosedIconStyle() };
+		}
+
+		let fillColor = "#2ecc71";
+		if (status === "open") {
+			fillColor = "#2ecc71";
+		} else {
+			fillColor = "#f1c40f";
 		}
 
 		return {

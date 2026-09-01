@@ -56,6 +56,7 @@
 <script>
 (function () {
 	var DATA_URL = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
+	var CLOSED_ICON_URL = "https://cdn.jsdelivr.net/gh/lm-charliewolfe/better_map_with_wafflehouse_index@main/src/icons/closed-wafflehouse.png";
 	var statusEl = document.getElementById("whStatus");
 	var hideOpenEl = document.getElementById("whHideOpen");
 	var mapEl = document.getElementById("whMap");
@@ -155,7 +156,11 @@
 				map: map,
 				position: { lat: lat, lng: lng },
 				title: store.name || "Waffle House",
-				icon: {
+				icon: status === "temporarily_closed" ? {
+					url: CLOSED_ICON_URL,
+					scaledSize: new google.maps.Size(40, 40),
+					anchor: new google.maps.Point(20, 40)
+				} : {
 					path: google.maps.SymbolPath.CIRCLE,
 					fillColor: statusColor(status),
 					fillOpacity: 0.95,
