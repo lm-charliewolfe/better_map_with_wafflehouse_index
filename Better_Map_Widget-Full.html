@@ -261,11 +261,11 @@
 
 		// Whether to show weather by default. Options are: "no", "global", "nexrad", "openweather", "xweather"...
 		// You can set it here or in a dashboard token named "MapShowWeather"...
-		defaults.showWeatherDefault = "no";
+		defaults.showWeatherDefault = "global";
 
-		// If weather is shown, whether to show "none" or "wildfires" or "us-wildfires" or "outages" or "us-poweroutages" or "us-flooding" or "earthquakes"...
+		// If weather is shown, whether to show "none" or "wildfires" or "us-wildfires" or "outages" or "us-poweroutages" or "us-flooding" or "earthquakes" or "wafflehouse"...
 		// You can set it here or in a dashboard token named "MapOverlayOption"...
-		defaults.additionalOverlayOption = "earthquakes";
+		defaults.additionalOverlayOption = "wafflehouse";
 
 		// Whether to show or hide the map options along the top of the widget by default...
 		// You can set it here or in a dashboard token named "HideMapOptions"...
@@ -355,8 +355,13 @@
 
 <!-- Our CSS styles... -->
 <style type="text/css">
+	html,
 	body {
-		margin-top: 0;
+		margin: 0;
+		padding: 0;
+		width: 100%;
+		height: 100%;
+		min-height: 500px;
 	}
 
 	.customMapBody {
@@ -436,6 +441,7 @@
 	#googleMap {
 		flex: 1;
 		min-width: 0;
+		min-height: 400px;
 		border: 1px solid #aaa;
 		border-radius: 7px 0 0 7px;
 		transition: border-radius 0.25s ease-out;
@@ -1747,7 +1753,7 @@ if (window.RProfiler) {
 
 		const __LMBMW_MAPOPTS_COOKIE_BASE = "lm_bmw_mapOpts_v1";
 		const __LMBMW_MAPOPTS_MAX_AGE = 60 * 60 * 24 * 400;
-		const __LMBMW_ALLOWED_OVERLAY_VALUES = ["none", "wildfires", "us-poweroutages", "earthquakes", "us-flooding"];
+		const __LMBMW_ALLOWED_OVERLAY_VALUES = ["none", "wildfires", "us-poweroutages", "earthquakes", "us-flooding", "wafflehouse"];
 		const __LMBMW_ALLOWED_WEATHER_TYPES = ["radar", "nexrad-n0q-900913", "xweather", "openweather"];
 		const __LMBMW_ALLOWED_SOURCE_TYPES = ["groups", "resources", "services"];
 		const __LMBMW_MAPOPTS_ELEMENT_TO_KEY = {
@@ -1880,6 +1886,7 @@ if (window.RProfiler) {
 			else if (v === "us-poweroutages") additionalOverlayOption = "us-poweroutages";
 			else if (v === "earthquakes") additionalOverlayOption = "earthquakes";
 			else if (v === "us-flooding") additionalOverlayOption = "us-flooding";
+			else if (v === "wafflehouse") additionalOverlayOption = "wafflehouse";
 		}
 
 		// Function to apply saved toolbar options from the dashboard cookie...
@@ -2459,7 +2466,7 @@ if (window.RProfiler) {
 			xweatherAPIKey = xweatherAPIKeyToken.trim();
 		}
 		let dashboardAddlOverlayToken = "##MapOverlayOption##".toLowerCase();
-		if (dashboardAddlOverlayToken == "none" || dashboardAddlOverlayToken == "wildfires" || dashboardAddlOverlayToken == "us-wildfires" || dashboardAddlOverlayToken == "outages" || dashboardAddlOverlayToken == "us-poweroutages" || dashboardAddlOverlayToken == "earthquakes" || dashboardAddlOverlayToken == "us-flooding") {
+		if (dashboardAddlOverlayToken == "none" || dashboardAddlOverlayToken == "wildfires" || dashboardAddlOverlayToken == "us-wildfires" || dashboardAddlOverlayToken == "outages" || dashboardAddlOverlayToken == "us-poweroutages" || dashboardAddlOverlayToken == "earthquakes" || dashboardAddlOverlayToken == "us-flooding" || dashboardAddlOverlayToken == "wafflehouse") {
 			additionalOverlayOption = dashboardAddlOverlayToken;
 			if (additionalOverlayOption == "us-wildfires") {
 				additionalOverlayOption = "wildfires";
@@ -2593,6 +2600,8 @@ if (window.RProfiler) {
 			_dom.otherWeatherOverlays.value = "earthquakes";
 		} else if (additionalOverlayOption == "us-flooding") {
 			_dom.otherWeatherOverlays.value = "us-flooding";
+		} else if (additionalOverlayOption == "wafflehouse") {
+			_dom.otherWeatherOverlays.value = "wafflehouse";
 		}
 
 		_dom.markerStyleSelect.value = markerStyle === "circles" ? "circles" : "pins";
@@ -6432,18 +6441,23 @@ if (window.RProfiler) {
 
 						console.debug(`Loaded ${waffleData.response.collection.length} Waffle House locations`);
 
+						const waffleBounds = new google.maps.LatLngBounds();
+
 						waffleData.response.collection.forEach(store => {
 
-							if (!store.location.latitude || !store.location.longitude) return;
+							if (store.location.latitude == null || store.location.longitude == null || store.location.latitude === "" || store.location.longitude === "") return;
+
+							const lat = parseFloat(store.location.latitude);
+							const lng = parseFloat(store.location.longitude);
+							if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+							waffleBounds.extend({ lat: lat, lng: lng });
 
 							map.data.addGeoJson({
 								type: "Feature",
 								geometry: {
 									type: "Point",
-									coordinates: [
-										parseFloat(store.location.longitude),
-										parseFloat(store.location.latitude)
-									]
+									coordinates: [lng, lat]
 								},
 								properties: {
 									name: store.name,
@@ -6457,6 +6471,10 @@ if (window.RProfiler) {
 							});
 
 						});
+
+						if (!waffleBounds.isEmpty()) {
+							map.fitBounds(waffleBounds);
+						}
 
 						map.data.setStyle(function (feature) {
 
@@ -6493,26 +6511,18 @@ if (window.RProfiler) {
 							map.data.addListener("click", function (event) {
 
 								overlayInfoWindow.setContent(`
-                    <div style="line-height:1.5;color:#333;max-width:260px;">
-                        <h3 style="margin:0 0 8px 0;">
-                            ${event.feature.getProperty("name")}
-                        </h3>
-
-                        <p><b>Status:</b>
-                            ${event.feature.getProperty("status")}
-                        </p>
-
-                        <p>
-                            ${event.feature.getProperty("address")}<br>
-                            ${event.feature.getProperty("city")},
-                            ${event.feature.getProperty("state")}
-                        </p>
-
-                        <p>
-                            ${event.feature.getProperty("phone") || ""}
-                        </p>
-                    </div>
-                `);
+							<div style="line-height:1.5;color:#333;max-width:260px;">
+								<h3 style="margin:0 0 8px 0;">
+									${event.feature.getProperty("name")}
+								</h3>
+								<p><b>Status:</b> ${event.feature.getProperty("status")}</p>
+								<p>
+									${event.feature.getProperty("address")}<br>
+									${event.feature.getProperty("city")}, ${event.feature.getProperty("state")}
+								</p>
+								<p>${event.feature.getProperty("phone") || ""}</p>
+							</div>
+						`);
 
 								closeAllInfoWindows();
 								overlayInfoWindow.setPosition(event.latLng);
