@@ -1,0 +1,5968 @@
+// Better Map Widget
+// Developed by Kevin Ford
+
+// Some of the ideas behind this project:
+// * Support for thousands pins on the map, though be aware that Google Maps will start to struggle if too many pins.
+// * Adjacent pins get grouped/clustered together for a cleaner map display.
+// * Clusters use a donut chart to represent the severities of the grouped markers.
+// * Easy toggling of weather layers.
+// * Quick & easy filtering of what's displayed on the map.
+//
+// CODING CONSTRAINTS (LogicMonitor HTML sanitizer):
+// * Use plain ASCII only in widget source (printable 0x20-0x7E plus tab/newline).
+// * Do not use em dashes, en dashes, curly quotes, ellipsis, or other non-ASCII punctuation.
+// * Use hyphen-minus (-) instead of em/en dashes, straight ' and " for quotes, and ... for ellipsis.
+
+// ------------------------------------------------------------
+var version = "3.69 CDN + WHI";
+var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
+var releaseNotes = `
+	<h2>Release Notes</h2>
+	<p>Latest releases can be found at <a href="https://github.com/logicmonitor/custom_widgets" target="_blank">https://github.com/logicmonitor/custom_widgets</a></p>
+	<h3>Version 3.69</h3>
+	<ul>
+		<li>The loading indicator now shows geocoding progress (&quot;Geocoding x of y&quot;) when addresses are being resolved, so you can see the map is still working when many new locations need coordinates.</li>
+	</ul>
+	<h3>Version 3.68</h3>
+	<ul>
+		<li>Multiple Better Map Widgets on the same dashboard now share a single download of the widget's script and stylesheet, which speeds up loading a dashboard that contains several maps. Each full page refresh still pulls the currently published version.</li>
+		<li>Connection lines between two locations with only one link between them are now drawn straight. Curvature still applies to overlapping parallel links, which is what it was added for.</li>
+		<li>Panning and zooming a map with connection lines is smoother, since the lines are now recalculated once per frame instead of up to three times per refresh.</li>
+		<li>Cluster donut charts are now reused across clusters with the same mix of severities rather than being regenerated for every cluster on every pan and zoom.</li>
+		<li>The sidebar no longer rebuilds its item list while it is collapsed, and catches up when reopened.</li>
+		<li>Toggling the auto-zoom checkbox no longer refetches and rebuilds all weather overlays.</li>
+		<li>The power outage overlay no longer re-parses the county boundary data on every weather refresh, removing a periodic stall on large maps.</li>
+		<li>Added &quot;markerStyle&quot;, &quot;parallelConnectionCurvature&quot;, &quot;sidebarDefaultWidth&quot;, &quot;sidebarMinWidth&quot;, and &quot;sidebarMaxWidth&quot; to the editable defaults block, so they can be set without dashboard tokens.</li>
+		<li>The sidebar's minimum and maximum drag widths now honor their settings instead of being fixed at 220 pixels and 40 percent.</li>
+		<li>The widget's stylesheet is no longer re-added to the page on every widget save, so its link tags no longer accumulate over a dashboard session.</li>
+		<li>Saving one map on a dashboard that holds several no longer clears the script tags belonging to the other maps.</li>
+		<li>Fixed a leak where the optional overlays' map listeners were re-added every five minutes without the old ones being removed. On a dashboard left open for hours this made moving the mouse across the map progressively slower.</li>
+		<li>NEXRAD radar tiles are now requested over HTTPS, so they no longer get blocked as insecure content.</li>
+		<li>Geocoding is now paced just under Google's published ceiling of 3,000 lookups per minute rather than firing every address at once, and retries when Google asks us to slow down. A large map building from an empty cache now resolves as fast as that ceiling allows without losing pins to rate limiting.</li>
+		<li>Address coordinates cached by one map are now shared with the other maps on the dashboard instead of each overwriting the others, so repeat lookups are avoided.</li>
+		<li>A refresh can no longer get stuck repeating the same request if the LogicMonitor API reports more records than it returns.</li>
+		<li>Fixed refreshes that could leave the loading spinner up and the toolbar greyed out for good. The map now finishes a refresh even when some locations cannot be resolved, and an item that fails to plot is reported in the browser console instead of disappearing silently.</li>
+		<li>A map showing a single location, or several locations at the same address, no longer zooms all the way in to street level when it opens or when the reset-zoom button is used.</li>
+		<li>Console messages now include the widget ID to distinguish between multiple map widget instances on the same dashboard.</li>
+	</ul>
+	<h3>Version 3.67</h3>
+	<ul>
+		<li>Fixed the clear cache button leaving the geocode cache loaded in memory, which let cleared addresses reappear and be written back to browser storage.</li>
+		<li>Fixed the weather radar overlay drawing nothing whenever RainViewer returned no forecast frames.</li>
+		<li>Fixed an item's detail popup not reopening after it was dismissed with its X button, which previously required clicking a different item first.</li>
+		<li>Reduced the memory held after a dashboard edit or widget reload by releasing pending element watchers, queued deferred work, and each instance's window references during teardown.</li>
+	</ul>
+	<h3>Version 3.66</h3>
+	<ul>
+		<li>Group, resource, and service names, descriptions, addresses, custom property values, and connection names are now HTML-escaped before being displayed, so items whose names contain characters such as &amp;, &lt;, or &quot; render correctly instead of corrupting the marker, sidebar, and cluster popups.</li>
+		<li>Fixed the &quot;Force refresh the map data&quot; button performing a partial (differential) refresh instead of a full rebuild.</li>
+		<li>Fixed the map not re-fitting its zoom reliably after a toolbar filter change.</li>
+		<li>Fixed duplicate refresh timers and orphaned Google Map instances that could accumulate when the widget was saved while the map was still initializing.</li>
+	</ul>
+	<h3>Version 3.69 CDN + WHI</h3>
+	<ul>
+		<li>Added an optional "Waffle House Index" overlay (green = open, red = temporarily closed). Enable via the overlay dropdown or the MapOverlayOption dashboard token set to "wafflehouse".</li>
+	</ul>
+	<h3>Version 3.65</h3>
+	<ul>
+		<li>Added a "None" option to the additional overlay dropdown so weather can be shown without earthquakes, wildfires, power outages, or flooding. Earthquakes remains the default overlay.</li>
+	</ul>
+	<h3>Version 3.64</h3>
+	<ul>
+		<li>Overlay InfoWindows for earthquakes, wildfires, power outages, and floods now work independently when more than one Better Map Widget is on the same dashboard.</li>
+	</ul>
+	<h3>Version 3.63</h3>
+	<ul>
+		<li>URL-encode the LogicMonitor filter query parameter so group path values containing ampersands (and other reserved characters) no longer break REST API calls.</li>
+		<li>Fixed CDN hard-coded defaults (such as groupPathFilter) not applying when the CDN loader failed to attach them to the widget instance. The widget now recovers defaults from pendingDefaults or script expandos.</li>
+	</ul>
+	<h3>Version 3.62</h3>
+	<ul>
+		<li>Added toolbar options to switch between mapping groups, resources, or services. The initial selection comes from the &quot;MapSourceType&quot; token (or the hard-coded default) and the user's choice is remembered per widget until the &quot;Clear cache&quot; button is used.</li>
+	</ul>
+	<h3>Version 3.61</h3>
+	<ul>
+		<li>Fix for power outage data not plotting correctly. The widget now uses ODIN's county outage API as its primary source of US power outage data.</li>
+		<li>Improved display of flood data.</li>
+	</ul>
+	<h3>Version 3.59</h3>
+	<ul>
+		<li>Added the ability to use geodesic (great circle) connection lines instead of Mercator lines. This is useful for long-distance connections where the Mercator lines might take non-optimal paths. Changeable via a new dashboard token named "MapUseGeodesicLines" set to either true or false (default is true).</li>
+		<li>Replaced use of some non-ASCII characters with their ASCII equivalents.</li>
+		<li>Changed some portions of code that LogicMonitor's HTML sanitizer kept breaking.</li>
+		<li>Added the ability to only show items with active connections. Changeable via a new dashboard token named &quot;MapOnlyShowConnectedItems&quot; set to either true or false (default is false).</li>
+		<li>Added ability to show/hide status lines between items on the map. Changeable via a new dashboard token named &quot;MapShowConnectingLines&quot; set to either true or false (default is true).</li>
+	</ul>
+	<h3>Version 3.58</h3>
+	<ul>
+		<li>Overlapping connection lines are now displayed as parallel lines with a specified curvature. (Thank you ES & CH for your feedback!)</li>
+	</ul>
+	<h3>Version 3.57</h3>
+	<ul>
+		<li>Map toolbar option cookies are now scoped per widget instance (dashboard ID + widget ID). Existing dashboard-only cookies are still read and are migrated to the new format on the next save.</li>
+		<li>Fix for Google Maps trying to reinitialize when commiting code changes to an existing widget instance.</li>
+		<li>Updated to use MarkerClusterer v2.6.2.</li>
+	</ul>
+	<h3>Version 3.56</h3>
+	<ul>
+		<li>Fixed all toolbar options being saved to cookie whenever any toolbar option was changed.</li>
+		<li>Fixed path reset button not appearing on initial load when the value saved to cookie was different from the default value.</li>
+	</ul>
+	<h3>Version 3.55</h3>
+	<ul>
+		<li>Migrated the lingering reference to Google's legacy Marker class to the newer AdvancedMarkerElement.</li>
+	</ul>
+	<h3>Version 3.54</h3>
+	<ul>
+		<li>Improved display of wildfire information.</li>
+		<li>Fixed Google Maps' confusing default behavior of showing popups when clicking state/territory names.</li>
+	</ul>
+	<h3>Version 3.53</h3>
+	<ul>
+		<li>Added a button to reset the group filter if different from the default value.</li>
+		<li>Fixed issue with variable scoping when multiple instances of the widget are used on the same page.</li>
+		<li>Added some missing comments to the code.</li>
+	</ul>
+	<h3>Version 3.51</h3>
+	<ul>
+		<li>Cookies are now specific to each dashboard.</li>
+	</ul>
+	<h3>Version 3.50</h3>
+	<ul>
+		<li>Drop-down menu to select which type of map marker to use (pins or circles).</li>
+		<li>Renamed the &quot;	dot&quot; option to &quot;circles&quot; for consistency. Legacy &quot;default&quot;, &quot;pin&quot;, &quot;dot&quot;, &quot;dots&quot;, and &quot;circle&quot; values are still accepted for the &quot;MapMarkerStyle&quot; dashboard token.</li>
+		<li>When a user changes a toolbar option then the changes are saved to a cookie so that they persist across refreshes. Use the new &quot;Clear cache&quot; button to clear the cookie and reset the map to its default state.</li>
+	</ul>
+	<h3>Version 3.49</h3>
+	<ul>
+		<li>Added the ability to use dot-style markers instead of the default pin-style markers.</li>
+		<li>Fixed issue with mouse wheel scrolling not working correctly within the map info popup window.</li>
+	</ul>
+	<h3>Version 3.47</h3>
+	<ul>
+		<li>Optimizations to weather data refreshing.</li>
+		<li>Opacity of weather layers is now less jarring during zoom transitions.</li>
+		<li>Enabled support for OpenWeather Radar (requires free API key available from https://openweathermap.org/api).</li>
+		<li>Added LRU tile cache to reduce redundant network requests when the user zooms back to a previously-viewed level.</li>
+		<li>Fixed issue with connecting lines not being clickable to drill down to the instance details.</li>
+	</ul>
+	<h3>Version 3.45</h3>
+	<ul>
+		<li>Improved refresh speed when there are a large number of items on the map.</li>
+	</ul>
+	<h3>Version 3.44</h3>
+	<ul>
+		<li>A number of small fixes & improvements.</li>
+	</ul>
+	<h3>Version 3.41</h3>
+	<ul>
+		<li>Added the ability to show Xweather Global Radar (requires API ID & key available from https://www.xweather.com/weather-api). Xweather is offers a great deal of optional details such as lightning strikes, hail, wind gusts, etc. Many personal weather stations such as Ecowitt provide free Xweather API access if you feed them your weather data.</li>
+	</ul>
+	<h3>Version 3.39</h3>
+	<ul>
+		<li>Made the width of the map sidebar adjustable via drag handle.</li>
+	</ul>
+	<h3>Version 3.38</h3>
+	<ul>
+		<li>Added options for sorting items in the map sidebar by severity or by address.</li>
+		<li>If a value for the 'MapDisplayProperties' dashboard token is set, then those properties will be displayed in the map sidebar.</li>
+	</ul>
+	<h3>Version 3.36</h3>
+	<ul>
+		<li>Added the ability to show a map sidebar listing the status of all items on the map. It can be shown by default (or not) via a new dashboard token named "ShowMapSidebar".</li>
+	</ul>
+	<h3>Version 3.33</h3>
+	<ul>
+		<li>Improved the display of wildfire information.</li>
+	</ul>
+	<h3>Version 3.30</h3>
+	<ul>
+		<li>Added Catchpoint beacon for performance monitoring (no confidential data is collected).</li>
+	</ul>
+	<h3>Version 3.29</h3>
+	<ul>
+		<li>Fixed an infinite loop that could occur in certain situations.</li>
+	</ul>
+	<h3>Version 3.28</h3>
+	<ul>
+		<li>Optimized support for system & auto properties for location data.</li>
+	</ul>
+	<h3>Version 3.27</h3>
+	<ul>
+		<li>Added the ability to select the weather type and additional overlays from dropdowns instead of radio buttons.</li>
+		<li>Shifted the few static HTML portions to Javascript to make the CDN version easier to update.</li>
+		<li>Added a release notes button to the widget options.</li>
+	</ul>
+	<h3>Version 3.23</h3>
+	<ul>
+		<li>Re-added the option to specify credentials (bearer token or ID/key) for the widget's LM API calls.  If not specified then integrated portal authentication will be used.</li>
+		<li>Fix for US wildfire data not plotting correctly.</li>
+	</ul>
+	<h3>Version 3.19</h3>
+	<ul>
+		<li>Added two new 'MapStyle' options: "satellite" and "satellite-light".</li>
+		<li>Fix for US power outage data not plotting correctly.</li>
+	</ul>
+	<h3>Version 3.16</h3>
+	<ul>
+		<li>Added ability to specify a different location property (though use of the default 'location' property is still recommended).</li>
+		<li>Optimized loading of power outage data.</li>
+	</ul>
+	<h3>Version 3.12</h3>
+	<ul>
+		<li>Added hyperlink to tsunami details.</li>
+		<li>Added display of Australia bushfires.</li>
+	</ul>`;
+
+(function() {
+var betterMapScript = document.currentScript;
+var betterMapInstanceId = (betterMapScript && betterMapScript.getAttribute("data-better-map-instance-id")) || "";
+var betterMapRegistry = window.__betterMapWidgetRegistry = window.__betterMapWidgetRegistry || { instances: Object.create(null) };
+if (!betterMapRegistry.instances) {
+	betterMapRegistry.instances = Object.create(null);
+}
+var betterMapInstance = (betterMapRegistry.instances && betterMapRegistry.instances[betterMapInstanceId]) || {};
+if (betterMapInstanceId && !betterMapRegistry.instances[betterMapInstanceId]) {
+	betterMapRegistry.instances[betterMapInstanceId] = betterMapInstance;
+}
+var betterMapReloadGeneration = betterMapInstance.reloadGeneration || 0;
+var betterMapRoot = ensureBetterMapRoot(betterMapInstance.root);
+var betterMapTokenRoot = betterMapInstance.tokenRoot || document;
+// Recover CDN defaults when the loader stored {} because document.currentScript
+// was not the same node later found by sibling walk / querySelector.
+var betterMapDefaults = resolveBetterMapDefaults(betterMapInstance, betterMapRoot, betterMapTokenRoot);
+betterMapInstance.defaults = betterMapDefaults;
+if (betterMapRoot && betterMapInstanceId) {
+	betterMapRoot.setAttribute("data-better-map-instance-id", betterMapInstanceId);
+	betterMapInstance.root = betterMapRoot;
+}
+
+// LogicMonitor is a single-page app, so saving a widget re-runs this script without
+// reloading the page or the Google Maps API. Tear down any stale instance still
+// registered against this widget root before rebuilding the DOM.
+if (betterMapRoot && betterMapRegistry.instances) {
+	Object.keys(betterMapRegistry.instances).forEach(function(id) {
+		if (id === betterMapInstanceId) return;
+		var staleInstance = betterMapRegistry.instances[id];
+		if (staleInstance && staleInstance.root === betterMapRoot && typeof staleInstance.cleanup === "function") {
+			staleInstance.cleanup();
+			delete betterMapRegistry.instances[id];
+		}
+	});
+}
+
+// Function to route inline actions to the correct widget instance...
+if (!window.betterMapWidgetCall) {
+	window.betterMapWidgetCall = function(instanceId, methodName) {
+		var args = Array.prototype.slice.call(arguments, 2);
+		var registry = window.__betterMapWidgetRegistry;
+		var instance = registry && registry.instances && registry.instances[instanceId];
+		if (instance && instance.api && typeof instance.api[methodName] === "function") {
+			return instance.api[methodName].apply(null, args);
+		}
+		if (typeof window[methodName] === "function") {
+			return window[methodName].apply(null, args);
+		}
+	};
+}
+
+// Function to retrieve a widget default without relying on global variables...
+function getBetterMapGlobal(name, fallback) {
+	if (Object.prototype.hasOwnProperty.call(betterMapDefaults, name)) {
+		return betterMapDefaults[name];
+	}
+	return typeof window[name] === "undefined" ? fallback : window[name];
+}
+
+// Base URL for static widget assets (JS/CSS/data JSON bundled in the repo)...
+function getBetterMapWidgetAssetBase() {
+	if (window.__betterMapWidgetBase) {
+		return window.__betterMapWidgetBase;
+	}
+	var scriptSrc = (betterMapScript && betterMapScript.src) || '';
+	if (scriptSrc.indexOf('Better_Map_Widget.js') !== -1) {
+		return scriptSrc.replace(/Better_Map_Widget\.js.*$/, '');
+	}
+	return 'https://cdn.jsdelivr.net/gh/logicmonitor/custom_widgets@main/src/';
+}
+
+// Function to find or create the map container for this widget instance...
+function ensureBetterMapRoot(root) {
+	if (root) {
+		return root;
+	}
+	root = document.querySelector(".customMapBody:not([data-better-map-instance-id])") || document.querySelector(".customMapBody");
+	if (root) {
+		return root;
+	}
+	root = document.createElement("div");
+	root.className = "customMapBody";
+	root.innerHTML = "&nbsp;";
+	(document.body || document.documentElement).appendChild(root);
+	return root;
+}
+
+// Function to count own keys on a defaults object...
+function betterMapDefaultsKeyCount(defaults) {
+	if (!defaults || typeof defaults !== "object") {
+		return 0;
+	}
+	return Object.keys(defaults).length;
+}
+
+// Function to find __betterMapDefaults on a previous sibling script...
+function findBetterMapDefaultsInPreviousSiblings(start) {
+	var element = start && start.previousElementSibling;
+	while (element) {
+		if (element.tagName === "SCRIPT" && element.__betterMapDefaults && betterMapDefaultsKeyCount(element.__betterMapDefaults)) {
+			return element.__betterMapDefaults;
+		}
+		element = element.previousElementSibling;
+	}
+	return null;
+}
+
+// Function to recover CDN defaults the HTML loader may have failed to attach...
+function resolveBetterMapDefaults(instance, root, tokenRoot) {
+	var existing = instance && instance.defaults;
+	if (betterMapDefaultsKeyCount(existing)) {
+		return existing;
+	}
+	var registry = window.__betterMapWidgetRegistry;
+	if (registry && registry.pendingDefaults && registry.pendingDefaults.length) {
+		var queued = registry.pendingDefaults.shift();
+		if (betterMapDefaultsKeyCount(queued)) {
+			return queued;
+		}
+	}
+	var nearby = findBetterMapDefaultsInPreviousSiblings(root)
+		|| findBetterMapDefaultsInPreviousSiblings(tokenRoot);
+	if (nearby) {
+		return nearby;
+	}
+	var scripts = document.getElementsByTagName("script");
+	for (var i = 0; i < scripts.length; i++) {
+		if (scripts[i].__betterMapDefaults && betterMapDefaultsKeyCount(scripts[i].__betterMapDefaults)) {
+			return scripts[i].__betterMapDefaults;
+		}
+	}
+	return existing || {};
+}
+
+// Function to find an element inside this widget instance first...
+function getBetterMapElementById(id) {
+	var selector = "#" + id;
+	var element = null;
+	if (betterMapRoot && typeof betterMapRoot.querySelector === "function") {
+		element = betterMapRoot.querySelector(selector);
+	}
+	if (!element && betterMapTokenRoot && betterMapTokenRoot !== betterMapRoot && typeof betterMapTokenRoot.querySelector === "function") {
+		element = betterMapTokenRoot.querySelector(selector);
+	}
+	return element || document.getElementById(id);
+}
+
+// Function to find a selector inside this widget instance first...
+function getBetterMapScopedQuery(selector) {
+	if (betterMapRoot && typeof betterMapRoot.querySelector === "function") {
+		var element = betterMapRoot.querySelector(selector);
+		if (element) {
+			return element;
+		}
+	}
+	return document.querySelector(selector);
+}
+
+var apiBearerToken = getBetterMapGlobal("apiBearerToken", "");
+var lmAPIID = getBetterMapGlobal("lmAPIID", "");
+var lmAPIKey = getBetterMapGlobal("lmAPIKey", "");
+var mapSourceType = getBetterMapGlobal("mapSourceType", "groups");
+var mapLocationProperty = getBetterMapGlobal("mapLocationProperty", "location");
+var mapStyle = getBetterMapGlobal("mapStyle", "silverblue");
+var showCleared = getBetterMapGlobal("showCleared", true);
+var showWarnings = getBetterMapGlobal("showWarnings", true);
+var showErrors = getBetterMapGlobal("showErrors", true);
+var showCriticals = getBetterMapGlobal("showCriticals", true);
+var showSDT = getBetterMapGlobal("showSDT", true);
+var showOnlyConnected = getBetterMapGlobal("showOnlyConnected", false);
+var showConnections = getBetterMapGlobal("showConnections", true);
+var groupPathFilter = getBetterMapGlobal("groupPathFilter", "*");
+var statusUpdateIntervalMinutes = getBetterMapGlobal("statusUpdateIntervalMinutes", 2);
+var disableClustering = getBetterMapGlobal("disableClustering", false);
+var markerStyle = getBetterMapGlobal("markerStyle", "pins");
+var showWeatherDefault = getBetterMapGlobal("showWeatherDefault", "no");
+var additionalOverlayOption = getBetterMapGlobal("additionalOverlayOption", "earthquakes");
+var hideMapOptionsByDefault = getBetterMapGlobal("hideMapOptionsByDefault", false);
+var showMapSidebarByDefault = getBetterMapGlobal("showMapSidebarByDefault", false);
+var sidebarDefaultWidth = getBetterMapGlobal("sidebarDefaultWidth", 300);
+// Sidebar resize limits: the minimum is in pixels, the maximum is a percentage of the widget width...
+var sidebarMinWidth = getBetterMapGlobal("sidebarMinWidth", 220);
+var sidebarMaxWidth = getBetterMapGlobal("sidebarMaxWidth", 40);
+var autoResetMapOnRefresh = getBetterMapGlobal("autoResetMapOnRefresh", false);
+var developmentFlag = getBetterMapGlobal("developmentFlag", false);
+var fullRefreshInterval = getBetterMapGlobal("fullRefreshInterval", 0);
+var showMapTiltControls = getBetterMapGlobal("showMapTiltControls", false);
+var mapTilt = getBetterMapGlobal("mapTilt", 0);
+var mapHeading = getBetterMapGlobal("mapHeading", 0);
+var pollInheritedLocations = getBetterMapGlobal("pollInheritedLocations", true);
+var ignoreLatLongProps = getBetterMapGlobal("ignoreLatLongProps", false);
+var mapGestureHandling = getBetterMapGlobal("mapGestureHandling", "cooperative");
+var showRoadLabels = getBetterMapGlobal("showRoadLabels", "off");
+var displayProps = getBetterMapGlobal("displayProps", "");
+var connectionInfoProp = getBetterMapGlobal("connectionInfoProp", "auto.custom_map_connection_data");
+var connectingLineWeight = getBetterMapGlobal("connectingLineWeight", 3);
+var useGeodesicLines = getBetterMapGlobal("useGeodesicLines", true);
+var parallelConnectionCurvature = getBetterMapGlobal("parallelConnectionCurvature", 18);
+var openWeatherAPIKey = getBetterMapGlobal("openWeatherAPIKey", "");
+var xweatherAPIID = getBetterMapGlobal("xweatherAPIID", "");
+var xweatherAPIKey = getBetterMapGlobal("xweatherAPIKey", "");
+var weatherOpacity = getBetterMapGlobal("weatherOpacity", 0.35);
+var satelliteWeatherOpacity = getBetterMapGlobal("satelliteWeatherOpacity", 0.6);
+var rvOptionColorScheme = getBetterMapGlobal("rvOptionColorScheme", 8);
+var weatherRefreshMinutes = getBetterMapGlobal("weatherRefreshMinutes", 5);
+var showWildfireInfoEvent = getBetterMapGlobal("showWildfireInfoEvent", "click");
+var quakeMode = getBetterMapGlobal("quakeMode", "time");
+
+// ------------------------------------------------------------
+// Populate the widget body...
+betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
+	<div id="optionsBar" class="optionsVisible">
+		<div id="mapOptionsArea">
+			<span id="customGroupFilterOptions" data-title="Path to the items you'd like on the map. Examples:&quot;*&quot;, &quot;Locations/*&quot;">
+				<label for="customGroupFilterField">Group filter:</label>
+				<input type="text" id="customGroupFilterField" name="customGroupFilterField" value="*" onkeypress="betterMapWidgetCall('${betterMapInstanceId}', 'groupkeyHandler', event);" />
+			</span>
+			<button id="resetGroupFilterButton" type="button" data-title="Reset the group filter to the default value" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'resetGroupFilter');"><svg width="15" height="15" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><path id="Path" fill="#000000" stroke="none" d="M 16 1.25 C 15.987 1.25 15.971 1.25 15.956 1.25 C 11.466 1.25 7.448 3.276001 4.769 6.464001 L 4.751 6.486 L 4.751 1.716999 C 4.751 1.302999 4.415 0.966999 4.001 0.966999 C 3.587 0.966999 3.251 1.302999 3.251 1.716999 L 3.251 1.716999 L 3.251 8.788 C 3.255 8.818001 3.261 8.845001 3.268 8.869999 L 3.267 8.865 C 3.275 8.970001 3.307 9.067001 3.358 9.15 L 3.356 9.146999 C 3.381 9.193001 3.408 9.232 3.438 9.269001 L 3.437 9.268 C 3.471 9.306 3.508 9.34 3.548 9.369999 L 3.55 9.371 C 3.57 9.390999 3.59 9.41 3.612 9.428001 L 3.613 9.429001 C 3.628 9.438 3.645 9.438 3.661 9.445999 C 3.703 9.466999 3.751 9.485001 3.802 9.497 L 3.807 9.498001 C 3.847 9.511 3.894 9.521 3.942 9.526001 L 3.945 9.526001 C 3.964 9.527 3.981 9.536999 4.001 9.536999 L 11.072 9.536999 C 11.486 9.536999 11.822 9.201 11.822 8.786999 C 11.822 8.373001 11.486 8.036999 11.072 8.036999 L 11.072 8.036999 L 5.429 8.036999 C 7.848 4.813 11.662 2.749001 15.958 2.749001 C 15.973 2.749001 15.988 2.749001 16.003 2.749001 L 16.000999 2.749001 C 23.318001 2.750999 29.247999 8.681999 29.247999 15.999001 C 29.247999 23.316 23.316 29.249001 15.998 29.249001 C 10.743 29.249001 6.203 26.190001 4.061 21.756001 L 4.027 21.677 C 3.903 21.423 3.647 21.250999 3.35 21.250999 C 2.936 21.250999 2.6 21.587 2.6 22.000999 C 2.6 22.117001 2.626 22.226999 2.674 22.325001 L 2.672 22.32 C 5.095 27.344999 10.15 30.750999 16.000999 30.750999 C 24.148001 30.750999 30.752001 24.146999 30.752001 16 C 30.752001 7.853001 24.148001 1.249001 16.002001 1.249001 L 16.002001 1.249001 Z"/> </svg></button>
+
+			<span id="mapTypeOptions" data-title="Switch between viewing groups, resources, or services on the map">
+				<input type="radio" id="radioGroups" name="mapType" value="groups" checked onclick="betterMapWidgetCall('${betterMapInstanceId}', 'selectMapType', 'groups');" />
+				<label for="radioGroups" style="margin-right: 8px;">
+					<svg focusable="false" role="img" aria-label="Group" width="22" viewBox="0 0 24 24">
+						<path d="M3 19h17v2H3c-1.1 0-2-.9-2-2V6h2v13zM23 6v9c0 1.1-.9 2-2 2H7c-1.1 0-2-.9-2-2l.01-11c0-1.1.89-2 1.99-2h5l2 2h7c1.1 0 2 .9 2 2zM7 15h14V6h-7.83l-2-2H7v11z"></path>
+						<title>Groups</title>
+					</svg>
+				</label>
+				<input type="radio" id="radioResources" name="mapType" value="resources" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'selectMapType', 'resources');" />
+				<label for="radioResources" style="margin-right: 8px;">
+					<svg focusable="false" role="img" aria-label="Resource" width="22" viewBox="0 0 24 24">
+						<path d="M17 18C17 17.448 17.448 17 18 17C18.552 17 19 17.448 19 18C19 18.553 18.552 19 18 19C17.448 19 17 18.553 17 18Z"></path>
+						<path d="M5 18C5 18.5523 5.44772 19 6 19H9C9.55228 19 10 18.5523 10 18C10 17.4477 9.55228 17 9 17H6C5.44772 17 5 17.4477 5 18Z"></path>
+						<path d="M14 18C14 17.448 14.448 17 15 17C15.552 17 16 17.448 16 18C16 18.553 15.552 19 15 19C14.448 19 14 18.553 14 18Z"></path>
+						<path d="M5 12C5 11.4477 5.44772 11 6 11H9C9.55228 11 10 11.4477 10 12C10 12.5523 9.55228 13 9 13H6C5.44772 13 5 12.5523 5 12Z"></path>
+						<path d="M16 12C16 12.553 15.552 13 15 13C14.448 13 14 12.553 14 12C14 11.448 14.448 11 15 11C15.552 11 16 11.448 16 12Z"></path>
+						<path d="M18 13C18.552 13 19 12.553 19 12C19 11.448 18.552 11 18 11C17.448 11 17 11.448 17 12C17 12.553 17.448 13 18 13Z"></path>
+						<path d="M10 6C10 5.44772 9.55228 5 9 5H6C5.44772 5 5 5.44772 5 6C5 6.55228 5.44772 7 6 7H9C9.55228 7 10 6.55228 10 6Z"></path>
+						<path d="M16 6C16 6.553 15.552 7 15 7C14.448 7 14 6.553 14 6C14 5.448 14.448 5 15 5C15.552 5 16 5.448 16 6Z"></path>
+						<path d="M18 7C18.552 7 19 6.553 19 6C19 5.448 18.552 5 18 5C17.448 5 17 5.448 17 6C17 6.553 17.448 7 18 7Z"></path>
+						<path fill-rule="evenodd" clip-rule="evenodd" d="M4 2H20C21.103 2 22 2.897 22 4V20C22 21.103 21.103 22 20 22H4C2.897 22 2 21.103 2 20V4C2 2.897 2.897 2 4 2ZM4 16V20H19.997L19.998 16H4ZM4 14H19.998L19.999 10H4V14ZM4 8H19.999L20 4H4V8Z"></path>
+						<title>Resources</title>
+					</svg>
+				</label>
+				<input type="radio" id="radioServices" name="mapType" value="services" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'selectMapType', 'services');" />
+				<label for="radioServices">
+					<svg focusable="false" role="img" aria-label="Service" width="25" viewBox="0 0 20 20">
+						<g id="Vector">
+							<path d="M2 8.99999L9.59918 12.3246C9.8547 12.4364 10.1453 12.4364 10.4008 12.3246L18 8.99999V9.99999L10.8016 13.1493C10.2906 13.3729 9.7094 13.3729 9.19836 13.1493L2 9.99999V8.99999Z"></path>
+							<path fill-rule="evenodd" clip-rule="evenodd" d="M16.241 6.64999L10.3624 4.36389C10.1293 4.27323 9.87068 4.27323 9.63755 4.36389L3.75903 6.64999L9.63755 8.93608C9.87068 9.02674 10.1293 9.02674 10.3624 8.93608L16.241 6.64999ZM10.7249 3.43189C10.2586 3.25057 9.74136 3.25057 9.27511 3.43189L2.43795 6.09078C1.92791 6.28913 1.92791 7.01084 2.43795 7.20919L9.27511 9.86808C9.74136 10.0494 10.2586 10.0494 10.7249 9.86808L17.5621 7.20919C18.0721 7.01084 18.0721 6.28913 17.5621 6.09078L10.7249 3.43189Z"></path>
+							<path d="M2 12L9.59918 15.3246C9.8547 15.4364 10.1453 15.4364 10.4008 15.3246L18 12V13L10.8016 16.1493C10.2906 16.3729 9.7094 16.3729 9.19836 16.1493L2 13V12Z"></path>
+						</g>
+						<title>Services</title>
+					</svg>
+				</label>
+			</span>
+
+			<span id="sevFilterOptions">
+				<span class="sevFilterOption">
+					<input type="checkbox" id="showCleared" name="showCleared" value="showCleared" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshGroupData');" data-title="Show/hide items with no active alerts" />
+					<label for="showCleared"><div id="showClearedLabel" class="toolbarSevIcon">Cleared</div></label>
+				</span>
+				<span class="sevFilterOption">
+					<input type="checkbox" id="showWarnings" name="showWarnings" value="showWarnings" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshGroupData');" data-title="Show/hide items with active Warning alerts" />
+					<label for="showWarnings"><div id="showWarningsLabel" class="toolbarSevIcon">Warnings</div></label>
+				</span>
+				<span class="sevFilterOption">
+					<input type="checkbox" id="showErrors" name="showErrors" value="showErrors" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshGroupData');" data-title="Show/hide items with active Error alerts" />
+					<label for="showErrors"><div id="showErrorsLabel" class="toolbarSevIcon">Errors</div></label>
+				</span>
+				<span class="sevFilterOption">
+					<input type="checkbox" id="showCriticals" name="showCriticals" value="showCriticals" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshGroupData');" data-title="Show/hide items with active Critical alerts" />
+					<label for="showCriticals"><div id="showCriticalsLabel" class="toolbarSevIcon">Criticals</div></label>
+				</span>
+				<span class="sevFilterOption">
+					<input type="checkbox" id="showSDT" name="showSDT" value="showSDT" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshGroupData');" data-title="Show/hide items in Scheduled Down Time (SDT)" />
+					<label for="showSDT"><div id="showSDTLabel" class="toolbarSevIcon">SDT</div></label>
+				</span>
+				<span class="sevFilterOption">
+					<input type="checkbox" id="showConnections" name="showConnections" value="showConnections" checked="true" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshGroupData');" data-title="Show/hide status lines">
+					<label for="showConnections"><div id="showConnectionsLabel" class="toolbarSevIcon">Connections</div></label>
+				</span>
+				<span class="sevFilterOption">
+					<input type="checkbox" id="showConnected" name="showConnected" value="showConnected" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshGroupData');" data-title="When checked, show only items with status lines">
+					<label for="showConnected"><div id="showConnectedLabel" class="toolbarSevIcon">Connected</div></label>
+				</span>
+			</span>
+
+			<span data-title="Toggle visibility of additional options">
+				<svg id="optionsToggleButton" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'toggleMiscOptions')" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="vertical-align: middle;"><path id="gearIcon" d="M495.9 166.6c3.2 8.7 .5 18.4-6.4 24.6l-43.3 39.4c1.1 8.3 1.7 16.8 1.7 25.4s-.6 17.1-1.7 25.4l43.3 39.4c6.9 6.2 9.6 15.9 6.4 24.6c-4.4 11.9-9.7 23.3-15.8 34.3l-4.7 8.1c-6.6 11-14 21.4-22.1 31.2c-5.9 7.2-15.7 9.6-24.5 6.8l-55.7-17.7c-13.4 10.3-28.2 18.9-44 25.4l-12.5 57.1c-2 9.1-9 16.3-18.2 17.8c-13.8 2.3-28 3.5-42.5 3.5s-28.7-1.2-42.5-3.5c-9.2-1.5-16.2-8.7-18.2-17.8l-12.5-57.1c-15.8-6.5-30.6-15.1-44-25.4L83.1 425.9c-8.8 2.8-18.6 .3-24.5-6.8c-8.1-9.8-15.5-20.2-22.1-31.2l-4.7-8.1c-6.1-11-11.4-22.4-15.8-34.3c-3.2-8.7-.5-18.4 6.4-24.6l43.3-39.4C64.6 273.1 64 264.6 64 256s.6-17.1 1.7-25.4L22.4 191.2c-6.9-6.2-9.6-15.9-6.4-24.6c4.4-11.9 9.7-23.3 15.8-34.3l4.7-8.1c6.6-11 14-21.4 22.1-31.2c5.9-7.2 15.7-9.6 24.5-6.8l55.7 17.7c13.4-10.3 28.2-18.9 44-25.4l12.5-57.1c2-9.1 9-16.3 18.2-17.8C227.3 1.2 241.5 0 256 0s28.7 1.2 42.5 3.5c9.2 1.5 16.2 8.7 18.2 17.8l12.5 57.1c15.8 6.5 30.6 15.1 44 25.4l55.7-17.7c8.8-2.8 18.6-.3 24.5 6.8c8.1 9.8 15.5 20.2 22.1 31.2l4.7 8.1c6.1 11 11.4 22.4 15.8 34.3zM256 336a80 80 0 1 0 0-160 80 80 0 1 0 0 160z" fill="#aaa"/></svg>
+			</span>
+			<svg id="gearIconChevron" style="display: none; margin-left: -3px;" width="10" height="15" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><path d="M246.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-128-128c-9.2-9.2-22.9-11.9-34.9-6.9s-19.8 16.6-19.8 29.6l0 256c0 12.9 7.8 24.6 19.8 29.6s25.7 2.2 34.9-6.9l128-128z" fill="#999"/></svg>
+
+			<div id="optionsToggleArea">
+				<span id="autoZoomOptions" data-title="Automatically reset the map's zoom to encompass all items after timed refreshes. You can also manually do so at any time using the 'Reset map zoom' button on the left of the map.">
+					<!-- No handler needed: refreshGroupData reads this checkbox directly, and the
+					     mapOptionsArea change listener persists it. It previously called
+					     enableWeather, which refetched and rebuilt every weather overlay. -->
+					<input type="checkbox" id="autoZoom" name="autoZoom" value="autoZoom" checked="true" />
+					<label for="autoZoom">Auto-zoom</label>
+				</span>
+
+				<span id="weatherOptionsArea">
+					<span data-title="Enables overlay of current weather radar and more">
+						<input type="checkbox" id="weather" name="weather" value="weather" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');" />
+						<label for="weather">Weather</label>
+					</span>
+
+					<span id="weatherOptions">
+						<span data-title="Which source to use for weather information">
+							<select id="weatherType" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
+								<option value="radar" selected>Global Radar</option>
+								<option value="nexrad-n0q-900913">US NEXRAD Radar</option>
+								<option value="xweather">Xweather Global Radar</option>
+								<option value="openweather">OpenWeather Radar</option>
+							</select>
+						</span>
+
+						<span id="additionalOverlayOptions">
+							<span data-title="Additional layer options to show on the map when weather is enabled">
+								<select id="otherWeatherOverlays" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
+									<option value="none">None</option>
+									<option value="earthquakes" selected>Earthquakes (mag 6+, 7d)</option>
+									<option value="us-flooding">US Flooding</option>
+									<option value="us-poweroutages">US Power Outages</option>
+									<option value="wildfires">Wildfires</option>
+									<option value="wafflehouse">Waffle House Index</option>
+								</select>
+							</span>
+						</span>
+					</span>
+				</span>
+				<span id="markerStyleOptions">
+					<span data-title="Shape of map markers for monitored items">
+						<select id="markerStyleSelect">
+									<option value="pins">Pins</option>
+									<option value="circles">Circles</option>
+								</select>
+					</span>
+				</span>
+				<button id="releaseNotesButton" type="button" data-title="View release notes" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'showReleaseNotes');">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" height="22" width="22"><!--!Font Awesome Free v7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2026 Fonticons, Inc.--><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM288 224C288 206.3 302.3 192 320 192C337.7 192 352 206.3 352 224C352 241.7 337.7 256 320 256C302.3 256 288 241.7 288 224zM280 288L328 288C341.3 288 352 298.7 352 312L352 400L360 400C373.3 400 384 410.7 384 424C384 437.3 373.3 448 360 448L280 448C266.7 448 256 437.3 256 424C256 410.7 266.7 400 280 400L304 400L304 336L280 336C266.7 336 256 325.3 256 312C256 298.7 266.7 288 280 288z"/></svg>
+				</button>
+				<button id="clearCacheButton" type="button" data-title="Clear geocode cache and saved toolbar options in this browser (use if the map misbehaves)" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'clearCache');">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" height="20" width="20" style="vertical-align: middle;"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path id="recycleIcon" d="M216.3 124C262.5 44 378 44 424.2 124L461.5 188.6L489.2 172.6C497.6 167.7 508.1 168.4 515.8 174.3C523.5 180.2 526.9 190.2 524.4 199.6L500.9 287C497.5 299.8 484.3 307.4 471.5 304L384.1 280.6C374.7 278.1 367.8 270.2 366.5 260.6C365.2 251 369.9 241.5 378.3 236.7L406 220.7L368.7 156.1C347.1 118.8 293.3 118.8 271.7 156.1L266.4 165.2C257.6 180.5 238 185.7 222.7 176.9C207.4 168.1 202.2 148.5 211 133.1L216.3 124zM513.7 343.1C529 334.3 548.6 339.5 557.4 354.8L562.7 363.9C608.9 443.9 551.2 543.9 458.8 543.9L384.2 543.9L384.2 575.9C384.2 585.6 378.4 594.4 369.4 598.1C360.4 601.8 350.1 599.8 343.2 592.9L279.2 528.9C269.8 519.5 269.8 504.3 279.2 495L343.2 431C350.1 424.1 360.4 422.1 369.4 425.8C378.4 429.5 384.2 438.3 384.2 448L384.2 480L458.8 480C501.9 480 528.9 433.3 507.3 396L502 386.9C493.2 371.6 498.4 352 513.7 343.2zM115 299.4L87.3 283.4C78.9 278.5 74.2 269.1 75.5 259.5C76.8 249.9 83.7 242 93.1 239.5L180.5 216C193.3 212.6 206.5 220.2 209.9 233L233.3 320.4C235.8 329.8 232.4 339.7 224.7 345.7C217 351.7 206.5 352.3 198.1 347.4L170.4 331.4L133.1 396C111.5 433.3 138.5 480 181.6 480L192.2 480C209.9 480 224.2 494.3 224.2 512C224.2 529.7 209.9 544 192.2 544L181.6 544C89.3 544 31.6 444 77.8 364L115 299.4z"/></svg>
+				</button>
+			</div>
+		</div>
+
+		<div id="versionInfo">v${version}</div>
+	</div>
+
+	<!-- Placeholder for our map... -->
+	<div id="mapContainer">
+		<div id="googleMap">&nbsp;</div>
+		<div id="sidebarResizeHandle"></div>
+		<div id="sidebarArea">&nbsp;</div>
+	</div>
+
+	<div id="releaseNotesOverlay" onclick="if(event.target===this)betterMapWidgetCall('${betterMapInstanceId}', 'closeReleaseNotes');">
+		<div id="releaseNotesPopup">
+			<button id="releaseNotesCloseBtn" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'closeReleaseNotes');">&times;</button>
+			<div id="releaseNotesContent">${releaseNotes}</div>
+		</div>
+	</div>`;
+
+// ------------------------------------------------------------
+
+// Capture information from specific dashboard tokens we'll be using...
+// (Like any token inserted into the Text widget, LogicMonitor automatically inserts these token values as the page is being rendered so Javascript is able to pick them as if the values were there originally. If a token isn't set then the variable's value will be literally what's shown below, including the double-hashtags.)
+
+// Capture from token whether to plot "groups" or "resources" or "services"...
+var mapSourceTypeToken = getBetterMapElementById("mapSourceTypeToken").innerText;
+// If the token value wasn't set then use the values hard-coded above at the beginning of this script...
+// if (mapSourceTypeToken != "\#\#MapSourceType\#\#") {
+if (mapSourceTypeToken != "##MapSourceType##") {
+	mapSourceType = mapSourceTypeToken.toLowerCase();
+}
+// console.debug("mapSourceTypeToken", mapSourceTypeToken);
+
+// Capture from token whether to override the map location property...
+var mapLocationPropertyToken = getBetterMapElementById("mapLocationPropertyToken").innerText;
+// If the token value wasn't set then use the values hard-coded above at the beginning of this script...
+if (mapLocationPropertyToken != "##MapLocationProperty##") {
+	mapLocationProperty = mapLocationPropertyToken;
+}
+// console.debug("mapLocationPropertyToken", mapLocationPropertyToken);
+
+// Capture from token whether override the map theme...
+var mapStyleToken = getBetterMapElementById("mapStyleToken").innerText;
+// If the token value wasn't set then use the values hard-coded above at the beginning of this script...
+if (mapStyleToken != "##MapStyle##") {
+	mapStyle = mapStyleToken.toLowerCase();
+}
+// console.debug("mapStyleToken", mapStyleToken);
+
+// Capture from token whether to hide the map options...
+var hideMapOptionsByDefaultToken = getBetterMapElementById("hideMapOptionsByDefaultToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(hideMapOptionsByDefaultToken)) {
+	hideMapOptionsByDefault = true;
+}
+
+// Capture from token whether to show the map sidebar by default...
+var showMapSidebarByDefaultTokenEl = getBetterMapElementById("showMapSidebarByDefaultToken");
+if (showMapSidebarByDefaultTokenEl && isTruthyToken(showMapSidebarByDefaultTokenEl.innerText)) {
+	showMapSidebarByDefault = true;
+}
+
+// Capture from token whether to hide items that don't have active alerts...
+var ignoreClearedToken = getBetterMapElementById("ignoreClearedToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(ignoreClearedToken)) {
+	showCleared = false;
+}
+// Capture from token whether to hide items that have "Warning" alerts...
+var ignoreWarningsToken = getBetterMapElementById("ignoreWarningsToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(ignoreWarningsToken)) {
+	showWarnings = false;
+}
+// Capture from token whether to hide items that have "Error" alerts...
+var ignoreErrorsToken = getBetterMapElementById("ignoreErrorsToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(ignoreErrorsToken)) {
+	showErrors = false;
+}
+// Capture from token whether to hide items that have "Critical" alerts...
+var ignoreCriticalsToken = getBetterMapElementById("ignoreCriticalsToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(ignoreCriticalsToken)) {
+	showCriticals = false;
+}
+// Capture from token whether to hide items that are in SDT...
+var ignoreSDTToken = getBetterMapElementById("ignoreSDTToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(ignoreSDTToken)) {
+	showSDT = false;
+}
+// Capture from token whether to only show items with active connections...
+var onlyShowConnectedTokenEl = getBetterMapElementById("onlyShowConnectedToken");
+if (onlyShowConnectedTokenEl && isTruthyToken(onlyShowConnectedTokenEl.innerText)) {
+	showOnlyConnected = true;
+}
+// Capture from token whether to show connecting lines between endpoints...
+var showConnectingLinesTokenEl = getBetterMapElementById("showConnectingLinesToken");
+if (showConnectingLinesTokenEl) {
+	var showConnectingLinesToken = showConnectingLinesTokenEl.innerText;
+	if (showConnectingLinesToken != "##MapShowConnectingLines##") {
+		showConnections = isTruthyToken(showConnectingLinesToken);
+	}
+}
+// Capture from token whether to show the map tilt/rotation controls...
+var showMapTiltControlsToken = getBetterMapElementById("showMapTiltControlsToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(showMapTiltControlsToken)) {
+	showMapTiltControls = true;
+}
+// console.debug("showMapTiltControlsToken", showMapTiltControlsToken);
+// Capture from token whether to automatically reset the map's zoom to encompass all items on timed refreshes...
+var autoResetMapOnRefreshToken = getBetterMapElementById("autoResetMapOnRefreshToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(autoResetMapOnRefreshToken)) {
+	autoResetMapOnRefresh = true;
+}
+// console.debug("autoResetMapOnRefreshToken", autoResetMapOnRefreshToken);
+// Capture our group filter if defined as a token...
+// Ignore empty/whitespace tokens so an unset MapGroupPathFilter cannot wipe a CDN default.
+var dashboardGroupPathTokenEl = getBetterMapElementById("dashboardGroupPathToken");
+var dashboardGroupPathToken = ((dashboardGroupPathTokenEl && dashboardGroupPathTokenEl.innerText) || "").trim();
+if (dashboardGroupPathToken !== "" && dashboardGroupPathToken !== "##MapGroupPathFilter##") {
+	groupPathFilter = dashboardGroupPathToken;
+}
+if (groupPathFilter === "") {
+	// Default to "*" if no value was given...
+	groupPathFilter = "*";
+}
+// Capture the current path filter to reset the form field if the user completely clears it out...
+var initialGroupPathFilter = groupPathFilter;
+// Capture our overlay defaults if defined as tokens...
+var dashboardShowWeatherToken = getBetterMapElementById("dashboardShowWeatherToken").innerText.toLowerCase();
+if (dashboardShowWeatherToken == "global" || dashboardShowWeatherToken == "nexrad" || dashboardShowWeatherToken == "xweather" || dashboardShowWeatherToken == "openweather" || dashboardShowWeatherToken == "true" || dashboardShowWeatherToken == "yes") {
+	// If the token value is "true" or "yes" then default to "global"...
+	if (dashboardShowWeatherToken == "true" || dashboardShowWeatherToken == "yes") {
+		dashboardShowWeatherToken = "global";
+	}
+	showWeatherDefault = dashboardShowWeatherToken;
+}
+var openWeatherAPIKeyTokenEl = getBetterMapElementById("openWeatherAPIKeyToken");
+if (openWeatherAPIKeyTokenEl) {
+	let owKeyVal = openWeatherAPIKeyTokenEl.innerText;
+	if (owKeyVal !== "##OpenWeatherAPIKey##" && owKeyVal.trim() !== "") {
+		openWeatherAPIKey = owKeyVal.trim();
+	}
+}
+var xweatherAPIIDTokenEl = getBetterMapElementById("xweatherAPIIDToken");
+if (xweatherAPIIDTokenEl) {
+	let xwIDVal = xweatherAPIIDTokenEl.innerText;
+	if (xwIDVal !== "##XweatherAPIID##" && xwIDVal.trim() !== "") {
+		xweatherAPIID = xwIDVal.trim();
+	}
+}
+var xweatherAPIKeyTokenEl = getBetterMapElementById("xweatherAPIKeyToken");
+if (xweatherAPIKeyTokenEl) {
+	let xwKeyVal = xweatherAPIKeyTokenEl.innerText;
+	if (xwKeyVal !== "##XweatherAPIKey##" && xwKeyVal.trim() !== "") {
+		xweatherAPIKey = xwKeyVal.trim();
+	}
+}
+var dashboardAddlOverlayToken = getBetterMapElementById("dashboardAddlOverlayToken").innerText.toLowerCase();
+if (dashboardAddlOverlayToken == "none" || dashboardAddlOverlayToken == "wildfires" || dashboardAddlOverlayToken == "us-wildfires" || dashboardAddlOverlayToken == "outages" || dashboardAddlOverlayToken == "us-poweroutages" || dashboardAddlOverlayToken == "earthquakes" || dashboardAddlOverlayToken == "us-flooding" || dashboardAddlOverlayToken == "wafflehouse") {
+	additionalOverlayOption = dashboardAddlOverlayToken;
+	if (additionalOverlayOption == "us-wildfires") {
+		additionalOverlayOption = "wildfires";
+	}
+}
+// console.debug("dashboardAddlOverlayToken", dashboardAddlOverlayToken);
+// Capture from token any custom properties to display when viewing an item's details...
+var displayPropsToken = getBetterMapElementById("displayPropsToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (displayPropsToken != "##MapDisplayProperties##") {
+	displayProps = displayPropsToken;
+}
+// console.debug("displayPropsToken", displayPropsToken);
+// Capture from token whether to disable marker clustering...
+var disableClusteringToken = getBetterMapElementById("disableClusteringToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(disableClusteringToken)) {
+	disableClustering = true;
+}
+// console.debug("disableClusteringToken", disableClusteringToken);
+// Capture from token whether to show road labels...
+var showRoadLabelsToken = getBetterMapElementById("showRoadLabelsToken").innerText;
+// If the token value wasn't set then use the value hard-coded above at the beginning of this script...
+if (isTruthyToken(showRoadLabelsToken)) {
+	showRoadLabels = "yes";
+}
+// Capture from token for which marker style to use (pins vs circles; legacy tokens still accepted)...
+var markerStyleToken = "";
+try {
+	markerStyleToken = getBetterMapElementById("markerStyleToken").innerText;
+} catch (error) {
+	markerStyleToken = "";
+}
+var markerStyleTokenNorm = String(markerStyleToken).trim().toLowerCase();
+if (markerStyleTokenNorm === "dot" || markerStyleTokenNorm === "dots" || markerStyleTokenNorm === "circle" || markerStyleTokenNorm === "circles") {
+	markerStyle = "circles";
+} else if (markerStyleTokenNorm === "pins" || markerStyleTokenNorm === "default" || markerStyleTokenNorm === "pin") {
+	markerStyle = "pins";
+}
+
+// Capture from token how much curvature to use for parallel connection lines...
+var connectionCurvatureTokenEl = getBetterMapElementById("connectionCurvatureToken");
+var connectionCurvatureToken = connectionCurvatureTokenEl ? connectionCurvatureTokenEl.innerText : "";
+if (connectionCurvatureToken != "##MapConnectionCurvature##" && connectionCurvatureToken.trim() !== "") {
+	parallelConnectionCurvature = connectionCurvatureToken;
+}
+
+// Capture from token whether to use geodesic (great circle) connection lines...
+var useGeodesicLinesTokenEl = getBetterMapElementById("useGeodesicLinesToken");
+var useGeodesicLinesToken = useGeodesicLinesTokenEl ? useGeodesicLinesTokenEl.innerText : "";
+if (useGeodesicLinesToken != "##MapUseGeodesicLines##" && useGeodesicLinesToken.trim() !== "") {
+	useGeodesicLines = isTruthyToken(useGeodesicLinesToken);
+}
+
+// Capture from token whether to use a LogicMonitor API bearer token or API ID & key...
+var apiBearerTokenToken = getBetterMapElementById("apiBearerTokenToken").innerText;
+var apiIDToken = getBetterMapElementById("apiIDToken").innerText;
+var apiKeyToken = getBetterMapElementById("apiKeyToken").innerText;
+if (apiBearerTokenToken != "##apiBearerToken##") {
+	apiBearerToken = apiBearerTokenToken;
+}
+if (apiIDToken != "##apiID##") {
+	lmAPIID = apiIDToken;
+}
+if (apiKeyToken != "##apiKey##") {
+	lmAPIKey = apiKeyToken;
+}
+
+// ------------------------------------------------------------
+// Initialize Google Maps...
+
+// Fetch our map API key to use...
+var googleMapApiKey = parent.LMGlobalData.googleMapInfo.key.toString();
+
+// Skip bootstrap when Maps is already on the page (e.g. CDN widget reload during dev).
+if (typeof google === 'undefined' || !google.maps || typeof google.maps.importLibrary !== 'function') {
+	(g=>{var h,a,k,s,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=(s=m.querySelector("script[nonce]"))&&s.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})
+	({key: googleMapApiKey, v: "weekly"});
+}
+
+// ------------------------------------------------------------
+// Catchpoint beacon for performance monitoring (no confidential data is collected!)...
+(function() {
+	var s = document.createElement('script');
+	s.defer = true;
+	s.src = 'https://g.3gl.net/jp/14586/latest/InitialLoadScript.js';
+	document.head.appendChild(s);
+})();
+
+// ------------------------------------------------------------
+// CSRF Token caching for performance optimization
+var _cachedCsrfToken = null;
+var _csrfTokenExpiry = 0;
+var CSRF_TOKEN_TTL = 5 * 60 * 1000; // Cache token for 5 minutes
+
+// AbortController for canceling in-progress refresh operations
+var _currentRefreshController = null;
+
+// Function to debounce handlers when user input changes quickly...
+function debounce(fn, delay = 300) {
+	let timeoutId;
+	const debounced = (...args) => {
+		clearTimeout(timeoutId);
+		timeoutId = setTimeout(() => fn(...args), delay);
+	};
+	// Lets callers drop a queued call, either because it would undo work done since it was
+	// scheduled or because the widget is being torn down...
+	debounced.cancel = () => {
+		clearTimeout(timeoutId);
+		timeoutId = null;
+	};
+	return debounced;
+}
+
+var __LMBMW_MAPOPTS_COOKIE_BASE = "lm_bmw_mapOpts_v1";
+var __LMBMW_MAPOPTS_MAX_AGE = 60 * 60 * 24 * 400;
+var __LMBMW_ALLOWED_OVERLAY_VALUES = ["none", "wildfires", "us-poweroutages", "earthquakes", "us-flooding", "wafflehouse"];
+var __LMBMW_ALLOWED_WEATHER_TYPES = ["radar", "nexrad-n0q-900913", "xweather", "openweather"];
+var __LMBMW_ALLOWED_SOURCE_TYPES = ["groups", "resources", "services"];
+var __LMBMW_MAPOPTS_ELEMENT_TO_KEY = {
+	customGroupFilterField: "groupPathFilter",
+	showCleared: "showCleared",
+	showWarnings: "showWarnings",
+	showErrors: "showErrors",
+	showCriticals: "showCriticals",
+	showSDT: "showSDT",
+	showConnections: "showConnections",
+	showConnected: "showOnlyConnected",
+	autoZoom: "autoResetMapOnRefresh",
+	weather: "weather",
+	weatherType: "weatherType",
+	otherWeatherOverlays: "otherWeatherOverlays",
+	markerStyleSelect: "markerStyle",
+};
+
+// Function to return the ID of the LogicMonitor widget containing this iframe...
+function getContainingWidgetId() {
+	try {
+		const parentDoc = window.parent.document;
+		const iframe = Array.from(parentDoc.querySelectorAll("iframe"))
+			.find(frame => frame.contentWindow === window);
+		return (iframe && iframe.closest("[id]") && iframe.closest("[id]").id) || null;
+	} catch (e) {
+		return null;
+	}
+}
+
+// Function to sanitize a widget ID for use in a cookie name...
+function sanitizeWidgetIdForCookie(id) {
+	return String(id).replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
+// Function to build the legacy per-dashboard cookie name for saved map options...
+function getLegacyMapOptionsCookieName() {
+	const id = dashboardID || "default";
+	return `${__LMBMW_MAPOPTS_COOKIE_BASE}_${id}`;
+}
+
+// Function to build a per-widget cookie name for saved map options...
+function getMapOptionsCookieName() {
+	const id = dashboardID || "default";
+	if (widgetID) {
+		return `${__LMBMW_MAPOPTS_COOKIE_BASE}_${id}_${sanitizeWidgetIdForCookie(widgetID)}`;
+	}
+	return getLegacyMapOptionsCookieName();
+}
+
+// Function to read a JSON object from a named cookie...
+function readCookieObjectByName(cookieName) {
+	try {
+		const name = cookieName + "=";
+		const parts = document.cookie.split(";");
+		for (let i = 0; i < parts.length; i++) {
+			const s = parts[i].trim();
+			if (s.startsWith(name)) {
+				const raw = decodeURIComponent(s.slice(name.length));
+				const o = JSON.parse(raw);
+				return o && typeof o === "object" ? o : null;
+			}
+		}
+	} catch (e) {}
+	return null;
+}
+
+// Function to expire a named cookie...
+function clearCookieByName(cookieName) {
+	try {
+		document.cookie = `${cookieName}=;path=/;max-age=0`;
+	} catch (e) {}
+}
+
+// Function to read saved map options from the widget- or dashboard-specific cookie...
+function readMapOptionsCookieObject() {
+	const widgetScoped = readCookieObjectByName(getMapOptionsCookieName());
+	if (widgetScoped) return widgetScoped;
+	if (widgetID) {
+		return readCookieObjectByName(getLegacyMapOptionsCookieName());
+	}
+	return null;
+}
+
+// Function to write saved map options to the widget-specific cookie...
+function writeMapOptionsCookieObject(o) {
+	try {
+		document.cookie = `${getMapOptionsCookieName()}=${encodeURIComponent(JSON.stringify(o))};path=/;max-age=${__LMBMW_MAPOPTS_MAX_AGE};SameSite=Lax`;
+	} catch (e) {}
+}
+
+// Function to clear saved map options for the current widget and legacy dashboard cookie...
+function clearMapOptionsCookie() {
+	try {
+		clearCookieByName(getLegacyMapOptionsCookieName());
+		if (widgetID) {
+			clearCookieByName(getMapOptionsCookieName());
+		}
+	} catch (e) {}
+}
+
+// Function to make sure the selected weather type is still valid...
+function ensureMapOptsWeatherTypeValid() {
+	const sel = _dom.weatherType;
+	const opt = sel.options[sel.selectedIndex];
+	if (opt && opt.disabled) {
+		for (let i = 0; i < sel.options.length; i++) {
+			if (!sel.options[i].disabled) {
+				sel.selectedIndex = i;
+				break;
+			}
+		}
+	}
+}
+
+// Function to check the map type radio button matching the current source type...
+// (Anything other than "groups" or "services" is queried as resources, so the radio follows suit.)
+function syncMapTypeRadiosFromSourceType() {
+	if (!_dom.radioGroups || !_dom.radioResources || !_dom.radioServices) return;
+	_dom.radioGroups.checked = mapSourceType === "groups";
+	_dom.radioServices.checked = mapSourceType === "services";
+	_dom.radioResources.checked = mapSourceType !== "groups" && mapSourceType !== "services";
+}
+
+// Function to sync the selected overlay back to the overlay variable...
+function syncAdditionalOverlayVarFromSelect() {
+	const v = _dom.otherWeatherOverlays.value;
+	if (v === "none") additionalOverlayOption = "none";
+	else if (v === "wildfires") additionalOverlayOption = "wildfires";
+	else if (v === "us-poweroutages") additionalOverlayOption = "us-poweroutages";
+	else if (v === "earthquakes") additionalOverlayOption = "earthquakes";
+	else if (v === "us-flooding") additionalOverlayOption = "us-flooding";
+	else if (v === "wafflehouse") additionalOverlayOption = "wafflehouse";
+}
+
+// Function to apply saved toolbar options from the dashboard cookie...
+function applyPersistedMapOptionsFromCookie() {
+	const o = readMapOptionsCookieObject();
+	if (!o) return;
+
+	if (typeof o.groupPathFilter === "string" && o.groupPathFilter.trim() !== "") {
+		groupPathFilter = o.groupPathFilter.trim();
+	}
+	if (typeof o.showCleared === "boolean") showCleared = o.showCleared;
+	if (typeof o.showWarnings === "boolean") showWarnings = o.showWarnings;
+	if (typeof o.showErrors === "boolean") showErrors = o.showErrors;
+	if (typeof o.showCriticals === "boolean") showCriticals = o.showCriticals;
+	if (typeof o.showSDT === "boolean") showSDT = o.showSDT;
+	if (typeof o.showOnlyConnected === "boolean") showOnlyConnected = o.showOnlyConnected;
+	else if (typeof o.showConnected === "boolean") showOnlyConnected = o.showConnected;
+	if (typeof o.showConnections === "boolean") showConnections = o.showConnections;
+	if (typeof o.autoResetMapOnRefresh === "boolean") autoResetMapOnRefresh = o.autoResetMapOnRefresh;
+
+	if (o.markerStyle === "circles" || o.markerStyle === "pins") {
+		markerStyle = o.markerStyle;
+	}
+
+	if (typeof o.mapSourceType === "string" && __LMBMW_ALLOWED_SOURCE_TYPES.indexOf(o.mapSourceType) >= 0) {
+		mapSourceType = o.mapSourceType;
+	}
+
+	if (typeof o.otherWeatherOverlays === "string" && __LMBMW_ALLOWED_OVERLAY_VALUES.indexOf(o.otherWeatherOverlays) >= 0) {
+		_dom.otherWeatherOverlays.value = o.otherWeatherOverlays;
+		if (o.otherWeatherOverlays === "us-poweroutages") additionalOverlayOption = "us-poweroutages";
+		else additionalOverlayOption = o.otherWeatherOverlays;
+	}
+	if (typeof o.weather === "boolean") {
+		_dom.weather.checked = o.weather;
+	}
+	if (typeof o.weatherType === "string" && __LMBMW_ALLOWED_WEATHER_TYPES.indexOf(o.weatherType) >= 0) {
+		_dom.weatherType.value = o.weatherType;
+	}
+	ensureMapOptsWeatherTypeValid();
+
+	_dom.showCleared.checked = showCleared;
+	_dom.showWarnings.checked = showWarnings;
+	_dom.showErrors.checked = showErrors;
+	_dom.showCriticals.checked = showCriticals;
+	_dom.showSDT.checked = showSDT;
+	_dom.showConnections.checked = showConnections;
+	_dom.showOnlyConnected.checked = showOnlyConnected;
+	_dom.autoZoom.checked = autoResetMapOnRefresh;
+	_dom.markerStyleSelect.value = markerStyle === "circles" ? "circles" : "pins";
+	_dom.customGroupFilterField.value = groupPathFilter;
+	syncMapTypeRadiosFromSourceType();
+	updateResetGroupFilterButtonVisibility();
+}
+
+// Function to show or hide the group filter reset button...
+function updateResetGroupFilterButtonVisibility() {
+	if (!_dom.resetGroupFilterButton) return;
+	const fieldValue = (_dom.customGroupFilterField.value || "").trim();
+	const initialValue = (initialGroupPathFilter || "").trim();
+	_dom.resetGroupFilterButton.style.display = fieldValue !== initialValue ? "inline-flex" : "none";
+}
+
+// Function to read the cookie value for a single toolbar control...
+function getMapOptionValueForElement(el) {
+	if (!el || !el.id) return undefined;
+	if (el.id === "customGroupFilterField") {
+		const gp = (el.value || "").trim();
+		return gp || groupPathFilter;
+	}
+	if (el.id === "markerStyleSelect") {
+		return el.value === "circles" ? "circles" : "pins";
+	}
+	if (el.id === "otherWeatherOverlays") {
+		syncAdditionalOverlayVarFromSelect();
+		return el.value;
+	}
+	if (el.type === "checkbox") return el.checked;
+	if (el.tagName === "SELECT") return el.value;
+	return undefined;
+}
+
+// Function to build a partial cookie update from a toolbar control...
+function buildMapOptionPartialFromElement(el) {
+	const key = el && el.id && __LMBMW_MAPOPTS_ELEMENT_TO_KEY[el.id];
+	if (!key) return null;
+	const value = getMapOptionValueForElement(el);
+	if (value === undefined) return null;
+	return { [key]: value };
+}
+
+// Function to save one or more toolbar options to the dashboard cookie...
+function saveMapOptionsToCookie(partial) {
+	if (!partial || typeof partial !== "object") return;
+	const existing = readMapOptionsCookieObject() || {};
+	writeMapOptionsCookieObject(Object.assign({}, existing, { v: 1 }, partial));
+}
+
+// Function to persist a toolbar change event to the dashboard cookie...
+function handleMapOptionsAreaChange(e) {
+	const partial = buildMapOptionPartialFromElement(e && e.target);
+	if (partial) saveMapOptionsToCookie(partial);
+}
+
+// Function to persist the group filter field to the dashboard cookie...
+function saveGroupFilterToCookie() {
+	const gp = (_dom.customGroupFilterField.value || "").trim();
+	saveMapOptionsToCookie({ groupPathFilter: gp || groupPathFilter });
+}
+
+// Function to check if a token value represents a truthy boolean...
+function isTruthyToken(tokenValue) {
+	const lower = tokenValue.toLowerCase();
+	return lower === "true" || lower === "yes" || lower === "1";
+}
+
+// Severity metadata used when parsing alert/SDT status...
+var _severityMeta = {
+	warn:     { icon: () => warningIcon,  pinBG: "#f5ca1d", pinBorder: "#967c14", pinIndex: 1 },
+	error:    { icon: () => errorIcon,    pinBG: "#ff8c00", pinBorder: "#ac5101", pinIndex: 2 },
+	critical: { icon: () => criticalIcon, pinBG: "#e0351b", pinBorder: "#9a2614", pinIndex: 3 },
+	sdt:      { icon: () => sdtIcon,      pinBG: "#00a1fe", pinBorder: "#00a1fe", pinIndex: 4 },
+	clear:    { icon: () => clearedIcon,  pinBG: undefined, pinBorder: undefined, pinIndex: 0 },
+};
+
+// Function to parse alert/SDT status into a normalized severity object...
+function parseSeverity(item) {
+	let severity = "clear";
+	const alertMatch = item.alertStatus && item.alertStatus.match(/([\w]+)-([\w]+)-([\w]+)/);
+	if (alertMatch) {
+		const sev = alertMatch[2];
+		if (sev === "critical" || sev === "error" || sev === "warn") {
+			severity = sev;
+		}
+	}
+	const sdtMatch = item.sdtStatus && item.sdtStatus.match(/([\w]+)-([\w]+)-([\w]+)/);
+	if (sdtMatch && (sdtMatch[1].toLowerCase() === "sdt" || sdtMatch[2].toLowerCase() === "sdt")) {
+		severity = "sdt";
+	}
+	const meta = _severityMeta[severity];
+	return {
+		severity,
+		sevIcon: meta.icon(),
+		pinBG: meta.pinBG,
+		pinBorder: meta.pinBorder,
+		pinIndex: meta.pinIndex,
+	};
+}
+
+// Function to switch between mapping groups, resources, or services...
+function selectMapType(newType) {
+	const requestedType = __LMBMW_ALLOWED_SOURCE_TYPES.indexOf(newType) >= 0 ? newType : "groups";
+	if (requestedType === mapSourceType) {
+		syncMapTypeRadiosFromSourceType();
+		return;
+	}
+	mapSourceType = requestedType;
+	syncMapTypeRadiosFromSourceType();
+	saveMapOptionsToCookie({ mapSourceType: mapSourceType });
+
+	// The markers, connecting lines, and info windows all belong to the previous source type...
+	clearAllMarkers();
+	clearAllPolylines();
+	lineData = {};
+	if (markerInfoWindow) {
+		markerInfoWindow.close();
+		markerInfoWindow = null;
+	}
+	if (clusterInfoWindow) {
+		clusterInfoWindow.close();
+		clusterInfoWindow = null;
+	}
+	bounds = new google.maps.LatLngBounds();
+	centerCalculated = false;
+
+	// Inherited & system location properties are only fetched on a full refresh...
+	pollCount = fullRefreshInterval + 1;
+	refreshGroupData();
+}
+
+// Function to reset the group filter to its initial value...
+function resetGroupFilter() {
+	groupPathFilter = initialGroupPathFilter;
+	_dom.customGroupFilterField.value = groupPathFilter;
+	updateResetGroupFilterButtonVisibility();
+	refreshGroupData();
+	saveMapOptionsToCookie({ groupPathFilter: groupPathFilter });
+}
+
+/**
+* Fetches a Cross-Site Request Forgery (CSRF) token required for subsequent API calls.
+* Implements caching to avoid redundant network requests within the TTL period.
+*
+* This function makes a preliminary request to a dummy endpoint solely to retrieve
+* the CSRF token from the response headers.
+*
+* Credit for this function goes to Steven Villardi
+*
+* @async
+* @function fetchCsrfToken
+* @param {boolean} [forceRefresh=false] - Force a fresh token fetch, bypassing the cache.
+* @returns {Promise<string>} A promise that resolves with the CSRF token.
+* @throws {Error} If the fetch request fails or the token is not found in headers.
+*/
+async function fetchCsrfToken(forceRefresh = false) {
+	// Return cached token if still valid and not forcing refresh
+	if (!forceRefresh && _cachedCsrfToken && Date.now() < _csrfTokenExpiry) {
+		// console.debug('Using cached CSRF token...');
+		return _cachedCsrfToken;
+	}
+
+	// console.debug('Fetching fresh CSRF token...');
+	const response = await fetch('/santaba/rest/functions/dummy', {
+		method: 'GET',
+		headers: {
+			'X-Csrf-Token': 'Fetch', // Specific header to request the token
+			'Accept': 'application/json',
+			'X-Version': '3', // Specify API version if required by this endpoint
+		},
+		credentials: 'include', // Include cookies for session management/CSRF
+	});
+
+	if (!response.ok) {
+		// Clear cache on failure
+		_cachedCsrfToken = null;
+		_csrfTokenExpiry = 0;
+		throw new Error(`Failed to fetch CSRF token: ${response.status} ${response.statusText}`);
+	}
+
+	const token = response.headers.get('X-Csrf-Token');
+	if (!token) {
+		throw new Error('CSRF token not found in response headers.');
+	}
+
+	// Cache the token
+	_cachedCsrfToken = token;
+	_csrfTokenExpiry = Date.now() + CSRF_TOKEN_TTL;
+	// console.debug('CSRF Token fetched and cached successfully.');
+
+	return token;
+}
+
+/**
+* Generates an LMv1 HMAC-SHA256 authorization header for LogicMonitor API authentication.
+* Uses the Web Crypto API to compute the signature from the HTTP verb, epoch timestamp,
+* request body (if applicable), and resource path.
+*
+* @async
+* @function generateLMv1Auth
+* @param {string} httpVerb - The HTTP method (GET, POST, PUT, PATCH, DELETE).
+* @param {string} resourcePath - The API resource path (e.g., /device/devices).
+* @param {object|Array|undefined} postBody - The request body for POST/PUT/PATCH, or undefined.
+* @returns {Promise<string>} The complete LMv1 Authorization header value.
+*/
+async function generateLMv1Auth(httpVerb, resourcePath, postBody) {
+	const epoch = new Date().getTime();
+	const requestData = (postBody && ['POST', 'PUT', 'PATCH'].includes(httpVerb))
+		? JSON.stringify(postBody)
+		: '';
+	const requestVars = httpVerb + epoch + requestData + resourcePath;
+
+	const encoder = new TextEncoder();
+	const keyData = encoder.encode(lmAPIKey);
+	const messageData = encoder.encode(requestVars);
+
+	const cryptoKey = await crypto.subtle.importKey(
+		'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+	);
+	const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+	const base64Signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+
+	return `LMv1 ${lmAPIID}:${base64Signature}:${epoch}`;
+}
+
+/**
+	* Performs an HTTP request to the LogicMonitor REST API.
+	*
+	* Authentication is determined automatically based on the configured credentials:
+	*   1. Bearer token (apiBearerToken) - highest priority
+	*   2. LMv1 HMAC (lmAPIID + lmAPIKey)
+	*   3. CSRF token with session cookies - default integrated portal auth
+	*
+	* Credit for this function goes to Steven Villardi
+	*
+	* @async
+	* @function LMClient
+	* @param {object} options - The options for the API request.
+	* @param {string} options.resourcePath - The specific API resource path (e.g., /device/devices).
+	* @param {string} [options.queryParams=''] - Optional query parameters string (e.g., ?filter=name:value).
+	* @param {'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'} options.httpVerb - The HTTP method to use.
+	* @param {object | Array<unknown>} [options.postBody] - The JSON payload for POST/PUT/PATCH requests.
+	* @param {string} [options.apiVersion='3'] - The API version to use. Default is "3".
+	* @param {AbortSignal} [options.signal] - Optional AbortSignal for canceling the request.
+	* @returns {Promise<object>} A promise that resolves with the JSON response body on success.
+	* @throws {Error} Throws an Error on API errors (>=300 status), network issues,
+	*                 token fetching problems, or JSON handling errors. The error object
+	*                 may contain 'status' and 'statusText' properties for API errors.
+*/
+async function LMClient({
+	resourcePath,
+	queryParams = '', // Default queryParams to empty string
+	httpVerb,
+	postBody,
+	apiVersion = '3',
+	signal = null, // Optional AbortSignal for request cancellation
+}) {
+	// console.debug('LMClient called with:', { resourcePath, queryParams, httpVerb, postBody, apiVersion });
+	// Validate required parameters
+	if (!resourcePath || !httpVerb) {
+		throw new Error('Missing required parameters: resourcePath and httpVerb must be provided.');
+	}
+	const validVerbs = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+	if (!validVerbs.includes(httpVerb)) {
+		throw new Error(`Invalid httpVerb: ${httpVerb}. Must be one of ${validVerbs.join(', ')}`);
+	}
+
+	// console.debug(`Initiating LogicMonitor API call: ${httpVerb} ${resourcePath}${queryParams}`);
+
+	try {
+		// 1. Construct the API URL and base headers
+		const apiUrl = `/santaba/rest${resourcePath}${queryParams}`;
+		const headers = {
+			'Content-Type': 'application/json',
+			'Accept': 'application/json',
+			'X-Version': apiVersion,
+		};
+
+		const requestOptions = {
+			method: httpVerb,
+			headers: headers,
+		};
+
+		// 2. Set auth headers: bearer token > API ID/key (LMv1) > CSRF session auth
+		if (apiBearerToken) {
+			headers['Authorization'] = `Bearer ${apiBearerToken}`;
+		} else if (lmAPIID && lmAPIKey) {
+			headers['Authorization'] = await generateLMv1Auth(httpVerb, resourcePath, postBody);
+		} else {
+			const csrfToken = await fetchCsrfToken();
+			headers['X-Csrf-Token'] = csrfToken;
+			requestOptions.credentials = 'include';
+		}
+
+		// Add AbortSignal if provided
+		if (signal) {
+			requestOptions.signal = signal;
+		}
+
+		// 3. Add body only for relevant methods
+		if (postBody && (httpVerb === 'POST' || httpVerb === 'PUT' || httpVerb === 'PATCH')) {
+			try {
+				requestOptions.body = JSON.stringify(postBody);
+				// console.debug('Request body included:', postBody);
+			} catch (stringifyError) {
+				console.error(`Map ${widgetID}: Failed to stringify postBody:`, stringifyError);
+				// Add user-friendly message to the error
+				stringifyError.message = `Invalid postBody provided. Could not stringify to JSON. Original error: ${stringifyError.message}`;
+				throw stringifyError;
+			}
+		}
+
+		// 4. Make the API call
+		// console.debug(`Executing fetch to: ${apiUrl}`);
+		const response = await fetch(apiUrl, requestOptions);
+		// console.debug(`Received response status: ${response.status} ${response.statusText}`);
+
+		// 5. Process the response
+		if (response.ok) { // ok is true for statuses 200-299
+			// Handle potential empty response body for certain success statuses (e.g., 204 No Content)
+			if (response.status === 204) {
+				console.debug('Received 204 No Content response.');
+				return {}; // Return an empty object for 204
+			}
+			try {
+				// Assume response is JSON if status is ok and not 204
+				const data = await response.json();
+				// console.debug('API call successful, response data received.'); // Avoid logging potentially sensitive data by default
+				return data;
+			} catch (jsonError) {
+				console.error(`Map ${widgetID}: Failed to parse JSON response:`, jsonError);
+				// Create a new error with more context
+				const parseError = new Error(`Successfully received response (${response.status}), but failed to parse JSON body. Original error: ${jsonError.message}`);
+				parseError.status = response.status; // Attach status for context
+				parseError.statusText = response.statusText;
+				throw parseError;
+			}
+		} else {
+			// Handle API errors (status >= 300)
+			const error = new Error(`API Error: ${response.status} ${response.statusText}`);
+			error.status = response.status;
+			error.statusText = response.statusText;
+
+			// Attempt to get more details from the error response body
+			try {
+				const errorBody = await response.text(); // Use text first in case it's not JSON
+				error.body = errorBody || 'No additional error details provided.'; // Attach body to error
+				console.warn(`Map ${widgetID}: API Error Body: ${error.body}`); // Log the raw error body
+			} catch (bodyError) {
+				console.warn(`Map ${widgetID}: Could not read error response body:`, bodyError);
+				error.body = 'Could not read error response body.';
+			}
+			console.error(`Map ${widgetID}: LogicMonitor API Error:`, { status: error.status, statusText: error.statusText });
+			throw error; // Throw the augmented error object
+		}
+	} catch (error) {
+			// Abort errors are intentional cancellations - rethrow silently
+		if (error.name === 'AbortError') throw error;
+
+		console.error(`Map ${widgetID}: An error occurred in LMClient:`, error.message || error);
+
+		// Re-throw the error to be handled by the caller.
+		// Ensure it's always an Error object.
+		if (error instanceof Error) {
+			throw error;
+		} else {
+			// If it's not an Error object (e.g., the thrown API error object), wrap it
+			const wrappedError = new Error(error.message || 'An unexpected error occurred during the API call.');
+			// Copy relevant properties if they exist
+			if (error && typeof error === 'object') {
+				if ('status' in error) wrappedError.status = error.status;
+				if ('statusText' in error) wrappedError.statusText = error.statusText;
+				if ('body' in error) wrappedError.body = error.body;
+			}
+			throw wrappedError;
+		}
+	}
+}
+
+// ------------------------------------------------------------
+
+// Cache frequently accessed DOM elements for performance
+var _dom = {
+	showCleared: getBetterMapElementById("showCleared"),
+	showWarnings: getBetterMapElementById("showWarnings"),
+	showErrors: getBetterMapElementById("showErrors"),
+	showCriticals: getBetterMapElementById("showCriticals"),
+	showSDT: getBetterMapElementById("showSDT"),
+	showConnections: getBetterMapElementById("showConnections"),
+	showOnlyConnected: getBetterMapElementById("showConnected"),
+	autoZoom: getBetterMapElementById("autoZoom"),
+	weather: getBetterMapElementById("weather"),
+	weatherType: getBetterMapElementById("weatherType"),
+	otherWeatherOverlays: getBetterMapElementById("otherWeatherOverlays"),
+	markerStyleSelect: getBetterMapElementById("markerStyleSelect"),
+	radioGroups: getBetterMapElementById("radioGroups"),
+	radioResources: getBetterMapElementById("radioResources"),
+	radioServices: getBetterMapElementById("radioServices"),
+	customGroupFilterField: getBetterMapElementById("customGroupFilterField"),
+	resetGroupFilterButton: getBetterMapElementById("resetGroupFilterButton"),
+	mapOptionsArea: getBetterMapElementById("mapOptionsArea"),
+	refreshStatusArea: null, // Set later after map init
+	weatherRefreshButton: null, // Set later after map init
+	showClearedLabel: getBetterMapElementById("showClearedLabel"),
+	showWarningsLabel: getBetterMapElementById("showWarningsLabel"),
+	showErrorsLabel: getBetterMapElementById("showErrorsLabel"),
+	showCriticalsLabel: getBetterMapElementById("showCriticalsLabel"),
+	showSDTLabel: getBetterMapElementById("showSDTLabel"),
+	showConnectionsLabel: getBetterMapElementById("showConnectionsLabel"),
+	showConnectedLabel: getBetterMapElementById("showConnectedLabel"),
+	sidebarArea: getBetterMapElementById("sidebarArea"),
+	sidebarResizeHandle: getBetterMapElementById("sidebarResizeHandle"),
+	weatherOptions: getBetterMapElementById("weatherOptions"),
+	optionsToggleArea: getBetterMapElementById("optionsToggleArea"),
+	gearIcon: getBetterMapElementById("gearIcon"),
+	gearIconChevron: getBetterMapElementById("gearIconChevron"),
+}
+
+// Set the form fields as appropriate...
+_dom.showCleared.checked = showCleared;
+_dom.showWarnings.checked = showWarnings;
+_dom.showErrors.checked = showErrors;
+_dom.showCriticals.checked = showCriticals;
+_dom.showSDT.checked = showSDT;
+_dom.showConnections.checked = showConnections;
+_dom.showOnlyConnected.checked = showOnlyConnected;
+_dom.autoZoom.checked = autoResetMapOnRefresh;
+syncMapTypeRadiosFromSourceType();
+
+if (showWeatherDefault == "global") {
+	_dom.weather.checked = true;
+	_dom.weatherType.value = "radar";
+} else if (showWeatherDefault == "nexrad") {
+	_dom.weather.checked = true;
+	_dom.weatherType.value = "nexrad-n0q-900913";
+} else if (showWeatherDefault == "openweather") {
+	_dom.weather.checked = true;
+	_dom.weatherType.value = "openweather";
+} else if (showWeatherDefault == "xweather") {
+	_dom.weather.checked = true;
+	_dom.weatherType.value = "xweather";
+}
+
+// Disable the Xweather option if the XweatherAPIID or XweatherAPIKey is missing...
+var xweatherOption = _dom.weatherType.querySelector('option[value="xweather"]');
+if (xweatherOption && (!xweatherAPIID || !xweatherAPIKey)) {
+	xweatherOption.disabled = true;
+	xweatherOption.textContent += " (API key required)";
+}
+// Disable the OpenWeather option if the OpenWeatherAPIKey is missing...
+var openweatherOption = _dom.weatherType.querySelector('option[value="openweather"]');
+if (openweatherOption && !openWeatherAPIKey) {
+	openweatherOption.disabled = true;
+	openweatherOption.textContent += " (API key required)";
+}
+
+if (additionalOverlayOption == "none") {
+	_dom.otherWeatherOverlays.value = "none";
+} else if (additionalOverlayOption == "wildfires") {
+	_dom.otherWeatherOverlays.value = "wildfires";
+} else if (additionalOverlayOption == "outages" || additionalOverlayOption == "us-poweroutages") {
+	_dom.otherWeatherOverlays.value = "us-poweroutages";
+} else if (additionalOverlayOption == "earthquakes") {
+	_dom.otherWeatherOverlays.value = "earthquakes";
+} else if (additionalOverlayOption == "us-flooding") {
+	_dom.otherWeatherOverlays.value = "us-flooding";
+} else if (additionalOverlayOption == "wafflehouse") {
+	_dom.otherWeatherOverlays.value = "wafflehouse";
+}
+
+_dom.markerStyleSelect.value = markerStyle === "circles" ? "circles" : "pins";
+_dom.markerStyleSelect.addEventListener("change", applyMarkerStyleFromSelect);
+
+// Capture information about the current dashboard for use in subsequent REST calls...
+var hostName = parent.window.location.host;
+var locationHash = parent.window.location.hash;
+var pathName = parent.window.location.pathname; // example: "/santaba/uiv4/dashboards/dashboards-2338"
+// Extract the numeric dashboard ID from the path (e.g. "dashboards-2338" -> "2338").
+var __LMBMW_DASHBOARD_ID_MATCH = pathName.match(/\/dashboards-(\d+)/i);
+var dashboardID = __LMBMW_DASHBOARD_ID_MATCH ? __LMBMW_DASHBOARD_ID_MATCH[1] : "";
+var widgetID = getContainingWidgetId();
+
+// Note our original tilt & heading values...
+var defaultMapTilt = mapTilt;
+var defaultMapHeading = mapHeading;
+// Zoom the map opens at, and what resetZoom falls back to when the bounds have no area to fit...
+var defaultMapZoom = 3;
+
+// SVG icon definitions for our different alert severities...
+var warningIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 1024 1024" data-tooltip="Warning"><path fill="#f5ca1d" d="M118.154 118.154h787.692c43.323 0 78.769 35.446 78.769 78.769v630.154c0 43.323-35.446 78.769-78.769 78.769h-787.692c-43.323 0-78.769-35.446-78.769-78.769v-630.154c0-43.323 35.446-78.769 78.769-78.769v0 0z"></path> <path fill="white" d="M866.462 669.538l-275.692-433.231c-43.323-70.892-114.215-70.892-157.538 0l-275.692 433.231c-43.323 70.892-3.938 157.538 78.769 157.538h551.385c82.708 0 122.092-86.646 78.769-157.538v0 0z"></path> <path fill="#f5ca1d" d="M551.385 748.308h-78.769v-78.769h78.769v78.769zM551.385 630.154h-78.769v-275.692h78.769v275.692z"></path> </svg>';
+var errorIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 1024 1024" data-tooltip="Error"><path fill="#ff8c00" d="M118.154 118.154h787.692c43.323 0 78.769 35.446 78.769 78.769v630.154c0 43.323-35.446 78.769-78.769 78.769h-787.692c-43.323 0-78.769-35.446-78.769-78.769v-630.154c0-43.323 35.446-78.769 78.769-78.769v0 0z"></path> <path fill="white" d="M866.462 669.538l-275.692-433.231c-43.323-70.892-114.215-70.892-157.538 0l-275.692 433.231c-43.323 70.892-3.938 157.538 78.769 157.538h551.385c82.708 0 122.092-86.646 78.769-157.538v0 0z"></path> <path fill="#ff8c00" d="M551.385 748.308h-78.769v-78.769h78.769v78.769zM551.385 630.154h-78.769v-275.692h78.769v275.692z"></path> </svg>';
+var criticalIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 1024 1024" data-tooltip="Critical"><path fill="#e0351b" d="M118.154 118.154h787.692c43.323 0 78.769 35.446 78.769 78.769v630.154c0 43.323-35.446 78.769-78.769 78.769h-787.692c-43.323 0-78.769-35.446-78.769-78.769v-630.154c0-43.323 35.446-78.769 78.769-78.769v0 0z"></path> <path fill="white" d="M827.077 590.769c-133.908-232.369-39.385-354.462-39.385-354.462s-173.292 43.323-157.538 157.538c-35.446-31.508-216.615-86.646-114.215-271.754v-3.938h-3.938c-3.938 0-55.138 23.631-94.523 74.831-39.385 47.262-110.277 106.338-63.015 240.246 31.508 74.831 39.385 94.523-39.385 157.538 3.938-15.754 11.815-51.2 0-78.769-27.569-63.015-78.769-78.769-78.769-78.769s43.323 66.954 0 118.154c-39.385 43.323-55.138 129.969-35.446 200.862 15.754 59.077 70.892 106.338 157.538 137.846-7.877-3.938 110.277 43.323 244.185 3.938 59.077-19.692 137.846-43.323 185.108-106.338 39.385-51.2 74.831-129.969 39.385-196.923v0 0z"></path> <path fill="#e0351b" d="M551.385 827.077h-78.769v-78.769h78.769v78.769zM551.385 708.923h-78.769v-275.692h78.769v275.692z"></path> </svg>';
+var clearedIcon = '<svg width="50" height="50" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg" data-tooltip="No alerts"><path id="Shape" fill="#ffffff" fill-rule="evenodd" stroke="none" d="M 43 25 C 43 15.61116 35.164986 8 25.5 8 C 15.835016 8 8 15.61116 8 25 C 8 34.38884 15.835016 42 25.5 42 C 35.164986 42 43 34.38884 43 25 Z"/><path id="Path" fill="#85c25d" stroke="none" d="M 25.5 4 C 37.374119 4 47 13.625877 47 25.5 C 47 37.374123 37.374119 47 25.5 47 C 13.625877 47 4 37.374123 4 25.5 C 4 13.625877 13.625877 4 25.5 4 Z M 17.975 17.974998 C 15.881312 17.974998 14.103745 18.670809 12.642242 20.062449 C 11.18074 21.45409 10.45 23.269981 10.45 25.510181 C 10.45 27.736805 11.18074 29.545912 12.642242 30.937551 C 14.103745 32.329193 15.881312 33.025002 17.975 33.025002 C 20.068687 33.025002 21.842855 32.329193 23.297562 30.937551 C 24.752264 29.545912 25.479607 27.736805 25.479607 25.510181 C 25.479607 23.283558 24.752264 21.471062 23.297562 20.072632 C 21.842855 18.674204 20.068687 17.974998 17.975 17.974998 Z M 31.006098 18.280481 L 27.784012 18.280481 L 27.784012 32.719521 L 31.006098 32.719521 L 31.006098 28.850101 L 32.637535 27.037582 L 36.532589 32.719521 L 40.549999 32.719521 L 34.901154 24.532646 L 40.529606 18.280481 L 36.287876 18.280481 L 31.006098 24.34936 L 31.006098 18.280481 Z M 17.975 21.111265 C 19.089819 21.111265 20.061874 21.48802 20.891193 22.241541 C 21.72051 22.995064 22.135162 24.07781 22.135162 25.489815 C 22.135162 26.901821 21.72051 27.981174 20.891193 28.727909 C 20.061874 29.474642 19.089819 29.848003 17.975 29.848003 C 16.86018 29.848003 15.884727 29.474642 15.048611 28.727909 C 14.212496 27.981174 13.794444 26.901821 13.794444 25.489815 C 13.794444 24.07781 14.209096 22.998459 15.038414 22.251724 C 15.881327 21.491413 16.86018 21.111265 17.975 21.111265 Z"/></svg>';
+var sdtIcon = '<svg width="50" height="50" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg" data-tooltip="SDT"><path id="Oval" fill="#00A1FE" fill-rule="evenodd" stroke="none" d="M 46 25 C 46 13.40202 36.59798 4 25 4 C 13.40202 4 4 13.40202 4 25 C 4 36.59798 13.40202 46 25 46 C 36.59798 46 46 36.59798 46 25 Z"/><g id="Group"><path id="Path" fill="#000000" fill-opacity="0.01" stroke="none" d="M 5 5 L 45 5 L 45 45 L 5 45 Z"/><path id="path1" fill="#ffffff" stroke="none" d="M 25 9.0625 C 16.19795 9.0625 9.0625 16.197948 9.0625 25 C 9.0625 33.801994 16.19795 40.9375 25 40.9375 C 33.801998 40.9375 40.9375 33.801994 40.9375 25 L 36.25 25 C 36.25 31.213245 31.213249 36.25 25 36.25 C 18.7868 36.25 13.75 31.213245 13.75 25 C 13.75 18.786802 18.7868 13.75 25 13.75 L 25 9.0625 Z"/><path id="path2" fill="#ffffff" stroke="none" d="M 33.75 12.5 C 33.75 13.880699 32.630753 15 31.25 15 C 29.869299 15 28.75 13.880699 28.75 12.5 C 28.75 11.119301 29.869299 10 31.25 10 C 32.630753 10 33.75 11.119301 33.75 12.5 Z"/><path id="path3" fill="#ffffff" stroke="none" d="M 40 18.75 C 40 20.130701 38.880753 21.25 37.5 21.25 C 36.119247 21.25 35 20.130701 35 18.75 C 35 17.369301 36.119247 16.25 37.5 16.25 C 38.880753 16.25 40 17.369301 40 18.75 Z"/><path id="path4" fill="#ffffff" fill-rule="evenodd" stroke="none" d="M 23.125 16.000004 L 26.880026 16.000004 L 26.880026 24.899998 L 33.125 28.647003 L 30.725 31.83075 L 23.125 27.066555 L 23.125 16.000004 Z"/></g></svg>';
+const connectedIcon = '<svg width="50" height="50" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg" data-tooltip="Connected"><path d="M 12 28 Q 25 17 38 13" fill="none" stroke="#e0351b" stroke-width="3" stroke-linecap="round"/><path d="M 12 28 L 38 40" fill="none" stroke="#85c25d" stroke-width="3" stroke-linecap="round"/><circle cx="12" cy="28" r="7" fill="#85c25d"/><circle cx="38" cy="13" r="7" fill="#85c25d"/><circle cx="38" cy="40" r="7" fill="#85c25d"/></svg>';
+const showConnectionsIcon = '<svg width="50" height="50" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg" data-tooltip="Show connections"><path d="M 12 28 Q 25 17 38 13" fill="none" stroke="#e0351b" stroke-width="4" stroke-linecap="round" stroke-dasharray="4 4"/><path d="M 12 28 L 38 40" fill="none" stroke="#85c25d" stroke-width="4" stroke-linecap="round" stroke-dasharray="4 4"/><circle cx="12" cy="28" r="5" fill="#85c25d" fill-opacity="0.5"/><circle cx="38" cy="13" r="5" fill="#85c25d" fill-opacity="0.5"/><circle cx="38" cy="40" r="5" fill="#85c25d" fill-opacity="0.5"/></svg>';
+// Animated throbber for when we're updating data...
+var loadingSpinner = '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_VpEe{animation:spinner_vXu6 1.2s cubic-bezier(0.52,.6,.25,.99) infinite}.spinner_eahp{animation-delay:.4s}.spinner_f7Y2{animation-delay:.8s}@keyframes spinner_vXu6{0%{r:0;opacity:1}100%{r:11px;opacity:0}}</style><circle class="spinner_VpEe" cx="12" cy="12" r="0" fill="red"/><circle class="spinner_VpEe spinner_eahp" cx="12" cy="12" r="0" fill="red"/><circle class="spinner_VpEe spinner_f7Y2" cx="12" cy="12" r="0" fill="red"/></svg>';
+// Icons for toggling visiiblity of the top toolbar...
+var optionsToggleVisibleIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" style="width: 25px; height: 25px;"><rect x="10" y="42" width="428" height="428" rx="54" ry="54" fill="none" stroke="#000000" stroke-width="20"/><path fill="#000000" d="M241.6 175.7C237.1 170.8 230.7 168 224 168S210.9 170.8 206.4 175.7l-96 104c-6.469 7-8.188 17.19-4.375 25.91C109.8 314.3 118.5 320 127.1 320h192c9.531 0 18.16-5.656 22-14.38c3.813-8.719 2.094-18.91-4.375-25.91L241.6 175.7z"/></svg>';
+var optionsToggleHiddenIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" style="width: 25px; height: 25px;"><rect x="10" y="42" width="428" height="428" rx="54" ry="54" fill="none" stroke="#000000" stroke-width="20"/><path fill="#000000" d="M320 192H128C118.5 192 109.8 197.7 105.1 206.4C102.2 215.1 103.9 225.3 110.4 232.3l96 104C210.9 341.2 217.3 344 224 344s13.09-2.812 17.62-7.719l96-104c6.469-7 8.188-17.19 4.375-25.91C338.2 197.7 329.5 192 320 192z"/></svg>';
+
+
+// Map color schemes created using Google's style editor (https://mapstyle.withgoogle.com/).
+// Wrapped in getters so only the selected style is allocated, and showRoadLabels is captured at call time.
+var mapStyles = {
+	get standard() { return [ { "stylers": [ { "lightness": 60 } ] }, { "elementType": "labels", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative", "elementType": "geometry.fill", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.land_parcel", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.neighborhood", "stylers": [ { "visibility": "off" } ] }, { "featureType": "poi", "elementType": "labels.text", "stylers": [ { "visibility": "off" } ] }, { "featureType": "poi.business", "stylers": [ { "visibility": "off" } ] }, { "featureType": "road", "elementType": "labels", "stylers": [ { "visibility": showRoadLabels } ] }, { "featureType": "road", "elementType": "labels.icon", "stylers": [ { "visibility": "off" } ] }, { "featureType": "transit", "stylers": [ { "visibility": "off" } ] } ]; },
+	get silver() { return [ { "elementType": "geometry", "stylers": [ { "color": "#f5f5f5" } ] }, { "elementType": "labels.icon", "stylers": [ { "visibility": "off" } ] }, { "elementType": "labels.text.fill", "stylers": [ { "color": "#616161" }, { "lightness": 70 } ] }, { "elementType": "labels.text.stroke", "stylers": [ { "color": "#f5f5f5" } ] }, { "featureType": "administrative", "elementType": "geometry.fill", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.country", "elementType": "geometry.stroke", "stylers": [ { "color": "#000000" }, { "lightness": 85 } ] }, { "featureType": "administrative.land_parcel", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.land_parcel", "elementType": "labels.text.fill", "stylers": [ { "color": "#bdbdbd" } ] }, { "featureType": "administrative.neighborhood", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.province", "elementType": "geometry.stroke", "stylers": [ { "color": "#000000" }, { "lightness": 80 } ] }, { "featureType": "poi", "elementType": "geometry", "stylers": [ { "color": "#eeeeee" } ] }, { "featureType": "poi", "elementType": "labels.text", "stylers": [ { "visibility": "off" } ] }, { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [ { "color": "#757575" } ] }, { "featureType": "poi.park", "elementType": "geometry", "stylers": [ { "color": "#e5e5e5" } ] }, { "featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [ { "color": "#9e9e9e" } ] }, { "featureType": "road", "stylers": [ { "lightness": 45 } ] }, { "featureType": "road", "elementType": "geometry", "stylers": [ { "color": "#ffffff" }, { "lightness": 55 } ] }, { "featureType": "road", "elementType": "geometry.fill", "stylers": [ { "lightness": 55 } ] }, { "featureType": "road", "elementType": "geometry.stroke", "stylers": [ { "lightness": 55 } ] }, { "featureType": "road", "elementType": "labels", "stylers": [ { "lightness": -15 }, { "visibility": showRoadLabels } ] }, { "featureType": "road", "elementType": "labels.icon", "stylers": [ { "visibility": "off" } ] }, { "featureType": "road", "elementType": "labels.text.stroke", "stylers": [ { "color": "#ffffff" } ] }, { "featureType": "road.highway", "elementType": "geometry", "stylers": [ { "color": "#dadada" }, { "lightness": 50 }, { "weight": 0.5 } ] }, { "featureType": "transit.line", "elementType": "geometry", "stylers": [ { "color": "#e5e5e5" } ] }, { "featureType": "transit.station", "elementType": "geometry", "stylers": [ { "color": "#eeeeee" } ] }, { "featureType": "water", "elementType": "geometry", "stylers": [ { "color": "#c9c9c9" }, { "lightness": 20 } ] }, { "featureType": "water", "elementType": "geometry.fill", "stylers": [ { "lightness": 35 } ] }, { "featureType": "water", "elementType": "labels.text", "stylers": [ { "visibility": "off" } ] }, { "featureType": "water", "elementType": "labels.text.fill", "stylers": [ { "color": "#9e9e9e" } ] } ]; },
+	get silverblue() { return [ { "elementType": "geometry", "stylers": [{ "color": "#f5f5f5" }] }, { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] }, { "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }, { "lightness": 70 }] }, { "elementType": "labels.text.stroke", "stylers": [{ "color": "#f5f5f5" }] }, { "featureType": "administrative", "elementType": "geometry.fill", "stylers": [{ "visibility": "off" }] }, { "featureType": "administrative.country", "elementType": "geometry.stroke", "stylers": [{ "color": "#000000" }, { "lightness": 85 }] }, { "featureType": "administrative.land_parcel", "stylers": [{ "visibility": "off" }] }, { "featureType": "administrative.land_parcel", "elementType": "labels.text.fill", "stylers": [{ "color": "#bdbdbd" }] }, { "featureType": "administrative.neighborhood", "stylers": [{ "visibility": "off" }] }, { "featureType": "administrative.province", "elementType": "geometry.stroke", "stylers": [{ "color": "#000000" }, { "lightness": 80 }] }, { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] }, { "featureType": "poi", "elementType": "labels.text", "stylers": [{ "visibility": "off" }] }, { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] }, { "featureType": "poi.park", "elementType": "geometry", "stylers": [{ "color": "#e5e5e5" }] }, { "featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [{ "color": "#9e9e9e" }] }, { "featureType": "road", "stylers": [{ "lightness": 45 }] }, { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#ffffff" }, { "lightness": 55 }] }, { "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "lightness": 55 }] }, { "featureType": "road", "elementType": "geometry.stroke", "stylers": [{ "lightness": 55 }] }, { "featureType": "road", "elementType": "labels", "stylers": [{ "visibility": showRoadLabels, "lightness": -15 }] }, { "featureType": "road.highway", "elementType": "geometry", "stylers": [{ "color": "#dadada" }, { "lightness": 50 }, { "weight": 0.5 }] }, { "featureType": "transit.line", "elementType": "geometry", "stylers": [{ "color": "#e5e5e5" }] }, { "featureType": "transit.station", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] }, { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#c9c9c9" }, { "lightness": 20 }] }, { "featureType": "water", "elementType": "geometry.fill", "stylers": [{ "color": "#cad0d8" }, { "lightness": 35 }] }, { "featureType": "water", "elementType": "labels.text", "stylers": [{ "visibility": "off" }] }, { "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#9e9e9e" }] } ]; },
+	get dark() { return [ { "elementType": "geometry", "stylers": [ { "color": "#212121" } ] }, { "elementType": "geometry.fill", "stylers": [ { "lightness": 10 } ] }, { "elementType": "labels", "stylers": [ { "visibility": "off" } ] }, { "elementType": "labels.icon", "stylers": [ { "visibility": "off" } ] }, { "elementType": "labels.text.fill", "stylers": [ { "color": "#757575" } ] }, { "elementType": "labels.text.stroke", "stylers": [ { "color": "#212121" } ] }, { "featureType": "administrative", "elementType": "geometry", "stylers": [ { "color": "#757575" } ] }, { "featureType": "administrative", "elementType": "geometry.fill", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.country", "elementType": "labels.text.fill", "stylers": [ { "color": "#9e9e9e" } ] }, { "featureType": "administrative.land_parcel", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [ { "color": "#bdbdbd" } ] }, { "featureType": "administrative.neighborhood", "stylers": [ { "visibility": "off" } ] }, { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [ { "color": "#757575" } ] }, { "featureType": "poi.park", "elementType": "geometry", "stylers": [ { "color": "#181818" } ] }, { "featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [ { "color": "#616161" } ] }, { "featureType": "poi.park", "elementType": "labels.text.stroke", "stylers": [ { "color": "#1b1b1b" } ] }, { "featureType": "road", "elementType": "geometry.fill", "stylers": [ { "color": "#2c2c2c" } ] }, { "featureType": "road", "elementType": "labels", "stylers": [ { "visibility": showRoadLabels } ] }, { "featureType": "road", "elementType": "labels.icon", "stylers": [ { "visibility": "off" } ] }, { "featureType": "road", "elementType": "labels.text.fill", "stylers": [ { "color": "#8a8a8a" } ] }, { "featureType": "road.arterial", "elementType": "geometry", "stylers": [ { "color": "#373737" } ] }, { "featureType": "road.highway", "elementType": "geometry", "stylers": [ { "color": "#3c3c3c" } ] }, { "featureType": "road.highway.controlled_access", "elementType": "geometry", "stylers": [ { "color": "#4e4e4e" } ] }, { "featureType": "road.local", "elementType": "labels.text.fill", "stylers": [ { "color": "#616161" } ] }, { "featureType": "transit", "elementType": "labels.text.fill", "stylers": [ { "color": "#757575" } ] }, { "featureType": "water", "elementType": "geometry", "stylers": [ { "color": "#000000" } ] }, { "featureType": "water", "elementType": "labels.text.fill", "stylers": [ { "color": "#3d3d3d" } ] } ]; },
+	get aubergine() { return [ { "elementType": "geometry", "stylers": [ { "color": "#1d2c4d" } ] }, { "elementType": "labels", "stylers": [ { "visibility": showRoadLabels } ] }, { "elementType": "labels.text.fill", "stylers": [ { "color": "#8ec3b9" } ] }, { "elementType": "labels.text.stroke", "stylers": [ { "color": "#1a3646" } ] }, { "featureType": "administrative", "elementType": "geometry.fill", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.country", "elementType": "geometry.stroke", "stylers": [ { "color": "#4b6878" } ] }, { "featureType": "administrative.land_parcel", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.land_parcel", "elementType": "labels.text.fill", "stylers": [ { "color": "#64779e" } ] }, { "featureType": "administrative.neighborhood", "stylers": [ { "visibility": "off" } ] }, { "featureType": "administrative.province", "elementType": "geometry.stroke", "stylers": [ { "color": "#4b6878" } ] }, { "featureType": "landscape.man_made", "elementType": "geometry.stroke", "stylers": [ { "color": "#334e87" } ] }, { "featureType": "landscape.natural", "elementType": "geometry", "stylers": [ { "color": "#023e58" } ] }, { "featureType": "poi", "stylers": [ { "visibility": "off" } ] }, { "featureType": "poi", "elementType": "geometry", "stylers": [ { "color": "#283d6a" } ] }, { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [ { "color": "#6f9ba5" } ] }, { "featureType": "poi", "elementType": "labels.text.stroke", "stylers": [ { "color": "#1d2c4d" } ] }, { "featureType": "poi.park", "elementType": "geometry.fill", "stylers": [ { "color": "#023e58" } ] }, { "featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [ { "color": "#3C7680" } ] }, { "featureType": "road", "elementType": "geometry", "stylers": [ { "color": "#304a7d" } ] }, { "featureType": "road", "elementType": "labels.icon", "stylers": [ { "visibility": "off" } ] }, { "featureType": "road", "elementType": "labels.text.fill", "stylers": [ { "color": "#98a5be" }, { "lightness": -30 } ] }, { "featureType": "road", "elementType": "labels.text.stroke", "stylers": [ { "color": "#1d2c4d" } ] }, { "featureType": "transit", "elementType": "labels.text.fill", "stylers": [ { "color": "#98a5be" } ] }, { "featureType": "transit", "elementType": "labels.text.stroke", "stylers": [ { "color": "#1d2c4d" } ] }, { "featureType": "transit.line", "elementType": "geometry.fill", "stylers": [ { "color": "#283d6a" } ] }, { "featureType": "transit.station", "elementType": "geometry", "stylers": [ { "color": "#3a4762" } ] }, { "featureType": "water", "elementType": "geometry", "stylers": [ { "color": "#0e1626" } ] }, { "featureType": "water", "elementType": "labels.text.fill", "stylers": [ { "color": "#4e6d70" } ] } ]; },
+};
+
+// RainViewer map options (feel free to change these to suit your taste)...
+var rvOptionKind = 'radar'; // can be 'radar' or 'satellite'
+var rvOptionSmoothData = 1; // 0 - not smooth, 1 - smooth
+var rvOptionSnowColors = 1; // 0 - do not show snow colors, 1 - show snow colors
+// Variables for holding RainViewer API data...
+var rvAPIData = {};
+var rvMapFrames = [];
+var rvLastPastFramePosition = -1;
+// Parsed copies of the static power-outage reference data. The weather refresh interval calls
+// addWeatherLayer() every few minutes, and without these the multi-megabyte county boundary
+// JSON was re-read and re-parsed from localStorage on the main thread every single cycle...
+var _countiesGeoJsonMemo = null;
+var _countyCustomerTotalsMemo = null;
+var weatherRefresher = null;
+var mapDataRefresher = null;
+
+// Number formatter for use in wildfire data...
+var numFormatOptions = {
+	style: 'decimal',  // Other options: 'currency', 'percent', etc.
+	minimumFractionDigits: 0,
+	maximumFractionDigits: 0,
+}
+
+// Adding a top-level placeholder for our Google Map objects...
+var map = "";
+var clusterer = "";
+var bounds = "";
+
+// Fetch helper with timeout & AbortController...
+if (!window.fetchJson) {
+	window.fetchJson = async function(url, { timeoutMs = 8000 } = {}) {
+		const ac = new AbortController();
+		const timer = setTimeout(() => ac.abort("timeout"), timeoutMs);
+		try {
+			const res = await fetch(url, { signal: ac.signal, credentials: "omit", cache: "no-store" });
+			if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+			const ct = res.headers.get("content-type") || "";
+			if (ct.includes("application/json")) return await res.json();
+			return await res.text();
+		} finally { clearTimeout(timer); }
+	}
+}
+
+// Batch builder to avoid jank when (re)building many markers...
+if (!window.buildMarkersInBatches) {
+	window.buildMarkersInBatches = async function(items, fn, batchSize = 1000) {
+		for (let i = 0; i < items.length; i += batchSize) {
+			const slice = items.slice(i, i + batchSize);
+			// One item is allowed to fail without taking down the whole batch, but it has to be
+			// reported. A silent throw here skips that item's processed count, which is what strands
+			// the refresh spinner, and swallowing the error leaves nothing to diagnose it with...
+			for (const it of slice) {
+				try {
+					fn(it);
+				} catch (e) {
+					console.warn(`Map ${widgetID}: skipped an item while building markers.`, (it && (it.name || it.id)) || it, e);
+				}
+			}
+			await new Promise(r => { if ('requestIdleCallback' in window) requestIdleCallback(()=>r()); else setTimeout(r,0); });
+		}
+	}
+}
+
+// Variable for holding our map markers...
+var markers = [];
+// Map for O(1) marker lookups by device ID (performance optimization)
+var markersByDeviceID = new Map();
+// Function to look up a marker by device ID, tolerating string/number ID mismatches...
+function getMarkerByDeviceID(deviceID) {
+	if (markersByDeviceID.has(deviceID)) return markersByDeviceID.get(deviceID);
+	const stringID = String(deviceID);
+	if (markersByDeviceID.has(stringID)) return markersByDeviceID.get(stringID);
+	const numberID = Number(deviceID);
+	if (!Number.isNaN(numberID) && markersByDeviceID.has(numberID)) return markersByDeviceID.get(numberID);
+	return null;
+}
+// For tracking if we've already established an initial center for our map based on markers...
+var centerCalculated = false;
+// For storing polyline references and their marker associations...
+var polylines = [];
+// Incremented for each refresh so old async connection draws cannot redraw stale lines.
+let refreshGeneration = 0;
+// Curvature is measured in screen pixels per parallel-link offset.
+// This keeps redundant interface links visible without changing marker placement.
+const parallelConnectionCurveSteps = 8;
+
+// Function to show the release notes overlay...
+function showReleaseNotes() {
+	getBetterMapElementById('releaseNotesOverlay').classList.add('visible');
+}
+
+// Function to close the release notes overlay...
+function closeReleaseNotes() {
+	getBetterMapElementById('releaseNotesOverlay').classList.remove('visible');
+}
+
+// Function to clear all markers from the map...
+function clearAllMarkers() {
+	markers.forEach(m => m.setMap(null));
+	markers = [];
+	markersByDeviceID.clear();
+	if (clusterer && typeof clusterer === "object") {
+		google.maps.event.clearInstanceListeners(clusterer);
+		clusterer.setMap(null);
+	}
+}
+
+// Function to clear all connecting polylines and their listeners...
+function clearAllPolylines() {
+	if (polylines.length === 0) return;
+	// console.debug("Clearing " + polylines.length + " polylines");
+	polylines.forEach(p => {
+		if (p && p.polyline) {
+			google.maps.event.clearInstanceListeners(p.polyline);
+			p.polyline.setMap(null);
+		}
+	});
+	polylines = [];
+}
+
+// Function to clamp connection-line curvature to a valid screen-pixel offset (0-120, default 18)...
+function normalizeConnectionCurvature(value) {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) return 18;
+	return Math.max(0, Math.min(parsed, 120));
+}
+parallelConnectionCurvature = normalizeConnectionCurvature(parallelConnectionCurvature);
+
+// Function to build an unordered endpoint-pair key so A->B and B->A links group together...
+function getConnectionEndpointPairKey(sourceID, targetID) {
+	const a = String(sourceID);
+	const b = String(targetID);
+	return a.localeCompare(b) <= 0 ? `${a}:${b}` : `${b}:${a}`;
+}
+
+// Function to pick a consistent curve side (+1 or -1) based on endpoint ID ordering...
+function getConnectionDirectionSign(sourceID, targetID) {
+	return String(sourceID).localeCompare(String(targetID)) <= 0 ? 1 : -1;
+}
+
+// Function to assign symmetric parallelOffsetIndex values to links sharing the same endpoints...
+function assignParallelConnectionOffsets() {
+	const groupedConnections = new Map();
+	Object.values(lineData).forEach(connection => {
+		const pairKey = getConnectionEndpointPairKey(connection.deviceIDSource, connection.deviceIDConnected);
+		if (!groupedConnections.has(pairKey)) groupedConnections.set(pairKey, []);
+		groupedConnections.get(pairKey).push(connection);
+	});
+
+	groupedConnections.forEach(connections => {
+		// Stable ordering prevents the same links from swapping sides between refreshes.
+		connections.sort((a, b) =>
+			String(a.instanceID).localeCompare(String(b.instanceID)) ||
+			String(a.datasourceID).localeCompare(String(b.datasourceID)) ||
+			String(a.connectionName).localeCompare(String(b.connectionName))
+		);
+		const midpointIndex = (connections.length - 1) / 2;
+		connections.forEach((connection, index) => {
+			connection.parallelOffsetIndex = index - midpointIndex;
+			connection.parallelConnectionCount = connections.length;
+		});
+	});
+}
+
+// Function to determine how far off-center a connection line should be curved...
+function getConnectionPathOffsetIndex(connection) {
+	// A lone connection has nothing to separate itself from, so it stays at offset 0 and
+	// buildConnectionPath returns a two-point straight line instead of interpolating a curve
+	// on every map idle. Curvature exists to fan out overlapping parallel links...
+	return Number((connection && connection.parallelOffsetIndex) || 0);
+}
+
+// Function to estimate ground meters per screen pixel at a latitude and zoom level...
+function getMetersPerPixel(latLng, zoom) {
+	const lat = typeof latLng.lat === "function" ? latLng.lat() : latLng.lat;
+	return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+}
+
+// Function to build a curved LatLng path for a connection, offset in screen pixels for parallel links...
+function buildMercatorConnectionPath(sourcePos, targetPos, connection, offsetIndex) {
+	const projection = (map && map.getProjection && map.getProjection());
+	const zoom = (map && map.getZoom && map.getZoom());
+	if (!projection || typeof zoom !== "number") return [sourcePos, targetPos];
+
+	const sourcePoint = projection.fromLatLngToPoint(sourcePos);
+	const targetPoint = projection.fromLatLngToPoint(targetPos);
+	const scale = Math.pow(2, zoom);
+	const dxPixels = (targetPoint.x - sourcePoint.x) * scale;
+	const dyPixels = (targetPoint.y - sourcePoint.y) * scale;
+	const lengthPixels = Math.hypot(dxPixels, dyPixels);
+	if (!lengthPixels) return [sourcePos, targetPos];
+
+	// Offset in screen-pixel space, then convert back to LatLng. This keeps the
+	// visual separation consistent across zoom levels and latitude.
+	const directionSign = getConnectionDirectionSign(connection.deviceIDSource, connection.deviceIDConnected);
+	const offsetPixels = offsetIndex * parallelConnectionCurvature * directionSign;
+	const perpendicularX = -dyPixels / lengthPixels;
+	const perpendicularY = dxPixels / lengthPixels;
+	const midpointX = (sourcePoint.x + targetPoint.x) / 2;
+	const midpointY = (sourcePoint.y + targetPoint.y) / 2;
+	const controlPoint = new google.maps.Point(
+		midpointX + (perpendicularX * offsetPixels) / scale,
+		midpointY + (perpendicularY * offsetPixels) / scale
+	);
+
+	const path = [];
+	for (let i = 0; i <= parallelConnectionCurveSteps; i++) {
+		const t = i / parallelConnectionCurveSteps;
+		const inv = 1 - t;
+		const x = (inv * inv * sourcePoint.x) + (2 * inv * t * controlPoint.x) + (t * t * targetPoint.x);
+		const y = (inv * inv * sourcePoint.y) + (2 * inv * t * controlPoint.y) + (t * t * targetPoint.y);
+		path.push(projection.fromPointToLatLng(new google.maps.Point(x, y)));
+	}
+	return path;
+}
+
+// Function to build a curved great-circle path, offset perpendicular to the geodesic for parallel links...
+function buildGeodesicConnectionPath(sourcePos, targetPos, connection, offsetIndex) {
+	const spherical = (google.maps.geometry && google.maps.geometry.spherical);
+	if (!spherical) return buildMercatorConnectionPath(sourcePos, targetPos, connection, offsetIndex);
+
+	const source = sourcePos instanceof google.maps.LatLng
+		? sourcePos
+		: new google.maps.LatLng(sourcePos.lat, sourcePos.lng);
+	const target = targetPos instanceof google.maps.LatLng
+		? targetPos
+		: new google.maps.LatLng(targetPos.lat, targetPos.lng);
+	if (!spherical.computeDistanceBetween(source, target)) return [sourcePos, targetPos];
+
+	const zoom = (map && map.getZoom && map.getZoom());
+	if (typeof zoom !== "number") return [source, target];
+
+	const directionSign = getConnectionDirectionSign(connection.deviceIDSource, connection.deviceIDConnected);
+	const offsetPixels = offsetIndex * parallelConnectionCurvature * directionSign;
+	const midpoint = spherical.interpolate(source, target, 0.5);
+	const offsetMetersMax = offsetPixels * getMetersPerPixel(midpoint, zoom);
+	const headingEpsilon = 0.01;
+	const path = [];
+
+	for (let i = 0; i <= parallelConnectionCurveSteps; i++) {
+		const t = i / parallelConnectionCurveSteps;
+		const greatCirclePoint = spherical.interpolate(source, target, t);
+		// Match the Mercator Bezier by peaking offset at the midpoint and tapering to zero at endpoints.
+		const bulge = 4 * t * (1 - t);
+		const offsetMeters = offsetMetersMax * bulge;
+		if (!offsetMeters) {
+			path.push(greatCirclePoint);
+			continue;
+		}
+
+		const pointBefore = spherical.interpolate(source, target, Math.max(0, t - headingEpsilon));
+		const pointAfter = spherical.interpolate(source, target, Math.min(1, t + headingEpsilon));
+		let heading = spherical.computeHeading(pointBefore, pointAfter);
+		if (!Number.isFinite(heading)) {
+			heading = spherical.computeHeading(source, target);
+		}
+		const perpHeading = heading + (offsetMeters >= 0 ? 90 : -90);
+		path.push(spherical.computeOffset(greatCirclePoint, Math.abs(offsetMeters), perpHeading));
+	}
+	return path;
+}
+
+// Function to build a curved LatLng path for a connection...
+// TY ES & CH for your feedback!
+function buildConnectionPath(sourcePos, targetPos, connection) {
+	const offsetIndex = getConnectionPathOffsetIndex(connection);
+	if (!offsetIndex) return [sourcePos, targetPos];
+	if (useGeodesicLines) {
+		return buildGeodesicConnectionPath(sourcePos, targetPos, connection, offsetIndex);
+	}
+	return buildMercatorConnectionPath(sourcePos, targetPos, connection, offsetIndex);
+}
+
+function isConnectionInCurrentFilter(connection) {
+	return Boolean(
+		getMarkerByDeviceID(connection.deviceIDSource) &&
+		getMarkerByDeviceID(connection.deviceIDConnected)
+	);
+}
+
+// Function to parse connection metadata from resource items into lineData and connectedDeviceIDs...
+function buildConnectionDataFromItems(items) {
+	const connectedDeviceIDs = new Set();
+	const newLineData = {};
+	if (mapSourceType !== "resources" || (!showOnlyConnected && !showConnections)) {
+		return { connectedDeviceIDs, lineData: newLineData };
+	}
+	items.forEach(thisItem => {
+		if (!thisItem.autoProperties) return;
+		const propArray = thisItem.autoProperties.filter(item => item.name == connectionInfoProp);
+		if (propArray.length !== 1 || !propArray[0].value) return;
+		const connectionItems = String(propArray[0].value).split(";");
+		connectionItems.forEach(thisConnection => {
+			const params = thisConnection.split(",").map(param => param.trim());
+			if (params.length < 4 || !params[1] || !params[2] || !params[3]) {
+				if (thisConnection.trim() !== "") {
+					console.debug("Skipping malformed map connection data", {
+						deviceID: thisItem.id,
+						connectionData: thisConnection,
+					});
+				}
+				return;
+			}
+			if (showOnlyConnected) {
+				connectedDeviceIDs.add(String(thisItem.id));
+				connectedDeviceIDs.add(String(params[3]));
+			}
+			if (showConnections) {
+				const connection = {
+					connectionName: params[0] || "Connection",
+					datasourceID: params[1],
+					instanceID: params[2],
+					deviceIDSource: thisItem.id,
+					deviceIDConnected: params[3],
+				};
+				newLineData[`${connection.deviceIDSource}:${connection.deviceIDConnected}:${connection.datasourceID}:${connection.instanceID}`] = connection;
+			}
+		});
+	});
+	return { connectedDeviceIDs, lineData: newLineData };
+}
+
+// Function to determine whether an item should be shown based on the connected filter...
+function passesConnectionFilter(itemId, connectedDeviceIDs) {
+	if (!showOnlyConnected) return true;
+	return connectedDeviceIDs.has(String(itemId));
+}
+
+// Function to add a map.data listener and record its handle for teardown...
+// Every listener has to go through here. addWeatherLayer rebuilds its overlay on a timer, so an
+// untracked listener is installed again on each pass and never removed. The outage handlers below
+// restyle every county polygon, which means a few hours of accumulation turns each mouse move
+// across the map into dozens of full-collection restyles.
+function addOverlayDataListener(eventName, handler) {
+	const handle = map.data.addListener(eventName, handler);
+	overlayDataListenerHandles.push(handle);
+	return handle;
+}
+
+// Function to remove every map.data listener the current overlay installed...
+function removeOverlayDataListeners() {
+	(overlayDataListenerHandles || []).forEach(function(handle) {
+		try {
+			google.maps.event.removeListener(handle);
+		} catch (error) {}
+	});
+	overlayDataListenerHandles = [];
+}
+
+// Function to clear all overlay data, listeners, and InfoWindows before loading a new overlay...
+function clearOverlayState() {
+	map.data.forEach(function(feature) {
+		map.data.remove(feature);
+	});
+	removeOverlayDataListeners();
+	if (overlayInfoWindow) {
+		overlayInfoWindow.close();
+		overlayInfoWindow = null;
+	}
+	overlayInfoWindow = new CustomInfoWindow({ content: "", anchor: 'right', offset: 20 });
+	if (mmiContourLines) {
+		mmiContourLines.forEach(line => line.setMap(null));
+		mmiContourLines = [];
+	}
+}
+
+// Function to close all open InfoWindows...
+function closeAllInfoWindows(opts) {
+	if (clusterInfoWindow) {
+		clusterInfoWindow.close();
+	}
+	if (!(opts && opts.skipMarker) && markerInfoWindow) {
+		markerInfoWindow.close();
+		markerInfoWindow = null;
+	}
+	if (overlayInfoWindow) {
+		overlayInfoWindow.close();
+	}
+}
+
+// Function to find a named property from an item's property arrays in priority order...
+function findItemProperty(item, propName, sources) {
+	if (!sources) sources = ['customProperties', 'inheritedProperties', 'autoProperties'];
+	for (const source of sources) {
+		const props = item[source];
+		if (!props) continue;
+		const found = props.find(p => p.name === propName);
+		if (found) return found;
+	}
+	return null;
+}
+
+// Function to find the location address and optional lat/lng from an item's properties...
+function findLocationFromItem(item, locationProp) {
+	const propSources = locationProp.match(/^auto\./)
+		? ['autoProperties']
+		: locationProp.match(/^system\./)
+			? ['systemProperties']
+			: ['customProperties', 'inheritedProperties'];
+
+	let address = "";
+	let alreadyGeocoded = false;
+	let latProp = null;
+	let lngProp = null;
+
+	for (const source of propSources) {
+		try {
+			const props = item[source];
+			if (!props) continue;
+			const found = props.find(p => p.name.toLowerCase() === locationProp.toLowerCase());
+			if (!found) continue;
+			address = found.value;
+			if (!ignoreLatLongProps) {
+				latProp = props.find(p => p.name.toLowerCase() === "latitude");
+				lngProp = props.find(p => p.name.toLowerCase() === "longitude");
+				if (latProp && lngProp) {
+					let latVal = Number(latProp.value);
+					let lngVal = Number(lngProp.value);
+					if (latVal > -90 && latVal < 90 && lngVal > -180 && lngVal < 180) {
+						alreadyGeocoded = true;
+					}
+				}
+			}
+			break;
+		} catch(e) { continue; }
+	}
+	return { address, alreadyGeocoded, latProp, lngProp };
+}
+
+// Function to create a styled map control button...
+function createMapControlButton({ id, title, innerHTML, size = "40px", bgColor = "rgb(255 255 255 / 0%)", margin = "", onClick }) {
+	const btn = document.createElement("button");
+	btn.id = id;
+	btn.style.backgroundColor = bgColor;
+	btn.style.border = "0";
+	btn.style.borderRadius = "3px";
+	btn.style.cursor = "pointer";
+	btn.style.fontSize = "x-large";
+	btn.style.textAlign = "center";
+	btn.style.height = size;
+	btn.style.width = size;
+	btn.style.verticalAlign = "middle";
+	if (margin) btn.style.margin = margin;
+	btn.title = title;
+	btn.innerHTML = innerHTML;
+	btn.type = "button";
+	if (onClick) btn.addEventListener("click", onClick);
+	return btn;
+}
+
+// Function to generate an earthquake marker icon SVG URL with the given opacity and color...
+function buildEarthquakeIconUrl(iconOpacity, alertColor) {
+	return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' data-tooltip='Earthquake' viewBox='0 0 302.836 302.836'%3E%3Cpath d='M271 256a15 15 0 0 1-15 15 15 15 0 0 1-15-15 15 15 0 0 1 15-15 15 15 0 0 1 15 15z' style='opacity:${iconOpacity};fill:${alertColor};fill-opacity:${iconOpacity};stroke:none;stroke-width:8;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1' transform='translate(-104.582 -104.582)'/%3E%3Cpath d='M256 139.29c-64.44 0-116.71 52.27-116.71 116.71S191.56 372.71 256 372.71 372.71 320.44 372.71 256 320.44 139.29 256 139.29zm0 3c62.818 0 113.71 50.892 113.71 113.71 0 62.818-50.892 113.71-113.71 113.71-62.818 0-113.71-50.892-113.71-113.71 0-62.818 50.892-113.71 113.71-113.71z' style='color:%23000;font-style:normal;font-variant:normal;font-weight:400;font-stretch:normal;font-size:medium;line-height:normal;font-family:sans-serif;text-indent:0;text-align:start;text-decoration:none;text-decoration-line:none;text-decoration-style:solid;text-decoration-color:%23000;letter-spacing:normal;word-spacing:normal;text-transform:none;direction:ltr;block-progression:tb;writing-mode:lr-tb;baseline-shift:baseline;text-anchor:start;white-space:normal;clip-rule:nonzero;display:inline;overflow:visible;visibility:visible;opacity:${iconOpacity};isolation:auto;mix-blend-mode:normal;color-interpolation:sRGB;color-interpolation-filters:linearRGB;solid-color:%23000;solid-opacity:${iconOpacity};fill:${alertColor};fill-opacity:.55474453;fill-rule:nonzero;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:${iconOpacity};color-rendering:auto;image-rendering:auto;shape-rendering:auto;text-rendering:auto;enable-background:accumulate' transform='translate(-104.582 -104.582)'/%3E%3Cpath d='M256 214.266c-22.996 0-41.734 18.738-41.734 41.734 0 22.996 18.738 41.734 41.734 41.734 22.996 0 41.734-18.738 41.734-41.734 0-22.996-18.738-41.734-41.734-41.734zm0 9c18.132 0 32.734 14.602 32.734 32.734S274.132 288.734 256 288.734 223.266 274.132 223.266 256s14.602-32.734 32.734-32.734z' style='color:%23000;font-style:normal;font-variant:normal;font-weight:400;font-stretch:normal;font-size:medium;line-height:normal;font-family:sans-serif;text-indent:0;text-align:start;text-decoration:none;text-decoration-line:none;text-decoration-style:solid;text-decoration-color:%23000;letter-spacing:normal;word-spacing:normal;text-transform:none;direction:ltr;block-progression:tb;writing-mode:lr-tb;baseline-shift:baseline;text-anchor:start;white-space:normal;clip-rule:nonzero;display:inline;overflow:visible;visibility:visible;opacity:${iconOpacity};isolation:auto;mix-blend-mode:normal;color-interpolation:sRGB;color-interpolation-filters:linearRGB;solid-color:%23000;solid-opacity:${iconOpacity};fill:${alertColor};fill-opacity:${iconOpacity};fill-rule:nonzero;stroke:${alertColor};stroke-width:3;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:${iconOpacity};color-rendering:auto;image-rendering:auto;shape-rendering:auto;text-rendering:auto;enable-background:accumulate' transform='translate(-104.582 -104.582)'/%3E%3Cpath d='M256 189.678c-36.594 0-66.322 29.728-66.322 66.322s29.728 66.322 66.322 66.322 66.322-29.728 66.322-66.322-29.728-66.322-66.322-66.322zm0 6c33.35 0 60.322 26.971 60.322 60.322 0 33.35-26.971 60.322-60.322 60.322-33.35 0-60.322-26.971-60.322-60.322 0-33.35 26.971-60.322 60.322-60.322z' style='color:%23000;font-style:normal;font-variant:normal;font-weight:400;font-stretch:normal;font-size:medium;line-height:normal;font-family:sans-serif;text-indent:0;text-align:start;text-decoration:none;text-decoration-line:none;text-decoration-style:solid;text-decoration-color:%23000;letter-spacing:normal;word-spacing:normal;text-transform:none;direction:ltr;block-progression:tb;writing-mode:lr-tb;baseline-shift:baseline;text-anchor:start;white-space:normal;clip-rule:nonzero;display:inline;overflow:visible;visibility:visible;opacity:${iconOpacity};isolation:auto;mix-blend-mode:normal;color-interpolation:sRGB;color-interpolation-filters:linearRGB;solid-color:%23000;solid-opacity:${iconOpacity};fill:${alertColor};fill-opacity:${iconOpacity};fill-rule:nonzero;stroke:none;stroke-width:6;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:${iconOpacity};color-rendering:auto;image-rendering:auto;shape-rendering:auto;text-rendering:auto;enable-background:accumulate' transform='translate(-104.582 -104.582)'/%3E%3Cpath d='M256 166.164c-49.591 0-89.836 40.245-89.836 89.836S206.41 345.836 256 345.836 345.836 305.59 345.836 256 305.59 166.164 256 166.164zm0 4c47.43 0 85.836 38.406 85.836 85.836S303.43 341.836 256 341.836 170.164 303.43 170.164 256 208.57 170.164 256 170.164z' style='color:%23000;font-style:normal;font-variant:normal;font-weight:400;font-stretch:normal;font-size:medium;line-height:normal;font-family:sans-serif;text-indent:0;text-align:start;text-decoration:none;text-decoration-line:none;text-decoration-style:solid;text-decoration-color:%23000;letter-spacing:normal;word-spacing:normal;text-transform:none;direction:ltr;block-progression:tb;writing-mode:lr-tb;baseline-shift:baseline;text-anchor:start;white-space:normal;clip-rule:nonzero;display:inline;overflow:visible;visibility:visible;opacity:${iconOpacity};isolation:auto;mix-blend-mode:normal;color-interpolation:sRGB;color-interpolation-filters:linearRGB;solid-color:%23000;solid-opacity:${iconOpacity};fill:${alertColor};fill-opacity:${iconOpacity};fill-rule:nonzero;stroke:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:${iconOpacity};color-rendering:auto;image-rendering:auto;shape-rendering:auto;text-rendering:auto;enable-background:accumulate' transform='translate(-104.582 -104.582)'/%3E%3Cpath d='M256 109.582c-80.853 0-146.418 65.565-146.418 146.418 0 80.853 65.565 146.418 146.418 146.418 80.853 0 146.418-65.565 146.418-146.418 0-80.853-65.565-146.418-146.418-146.418zm0 2c79.772 0 144.418 64.646 144.418 144.418S335.772 400.418 256 400.418 111.582 335.772 111.582 256 176.228 111.582 256 111.582z' style='color:%23000;font-style:normal;font-variant:normal;font-weight:400;font-stretch:normal;font-size:medium;line-height:normal;font-family:sans-serif;text-indent:0;text-align:start;text-decoration:none;text-decoration-line:none;text-decoration-style:solid;text-decoration-color:%23000;letter-spacing:normal;word-spacing:normal;text-transform:none;direction:ltr;block-progression:tb;writing-mode:lr-tb;baseline-shift:baseline;text-anchor:start;white-space:normal;clip-rule:nonzero;display:inline;overflow:visible;visibility:visible;opacity:${iconOpacity};isolation:auto;mix-blend-mode:normal;color-interpolation:sRGB;color-interpolation-filters:linearRGB;solid-color:%23000;solid-opacity:${iconOpacity};fill:${alertColor};fill-opacity:.35766422;fill-rule:nonzero;stroke:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:${iconOpacity};color-rendering:auto;image-rendering:auto;shape-rendering:auto;text-rendering:auto;enable-background:accumulate' transform='translate(-104.582 -104.582)'/%3E%3C/svg%3E`;
+}
+
+var _polylineUpdateFrame = null;
+
+// Function to coalesce polyline endpoint updates into a single pass per frame...
+// A refresh can otherwise trigger three full passes in a row (the explicit call after plotting,
+// the clusterer's "clusteringend" event, and the map's "idle" event), each one walking every
+// polyline and rebuilding its path.
+function schedulePolylineEndpointUpdate() {
+	if (_polylineUpdateFrame !== null) return;
+	_polylineUpdateFrame = requestAnimationFrame(() => {
+		_polylineUpdateFrame = null;
+		updatePolylineEndpoints();
+	});
+}
+
+// Function to cancel a queued polyline endpoint update...
+function cancelScheduledPolylineEndpointUpdate() {
+	if (_polylineUpdateFrame === null) return;
+	cancelAnimationFrame(_polylineUpdateFrame);
+	_polylineUpdateFrame = null;
+}
+
+// Function to update polyline endpoints to follow clusters and markers, rebuilding curved paths...
+function updatePolylineEndpoints() {
+	if (!polylines.length) return;
+	// console.debug("Updating " + polylines.length + " polyline endpoints");
+	polylines.forEach(p => {
+		if (!p || !p.polyline) return;
+		if (!isConnectionInCurrentFilter(p.connection)) {
+			p.polyline.setMap(null);
+			return;
+		}
+		const sourcePos = getMarkerOrClusterPosition(p.sourceDeviceID);
+		const targetPos = getMarkerOrClusterPosition(p.targetDeviceID);
+		if (sourcePos && targetPos) {
+			if (!p.polyline.getMap()) {
+				p.polyline.setMap(map);
+			}
+			p.polyline.setPath(buildConnectionPath(sourcePos, targetPos, p.connection));
+		} else {
+			p.polyline.setMap(null);
+		}
+	});
+}
+
+// Function to resolve a device's current visible position...
+function getMarkerOrClusterPosition(deviceID) {
+	if (!deviceID) return null;
+	const marker = getMarkerByDeviceID(deviceID);
+	if (!marker) return null;
+
+	// Check if clustering is enabled and marker is in a cluster
+	if (clusterer) {
+		// Get clusters - the MarkerClusterer library stores them in .clusters after rendering
+		const clusters = clusterer.clusters || [];
+		for (const cluster of clusters) {
+			// Each cluster has a .markers array and a .marker (the rendered cluster marker)
+			if (cluster.markers && cluster.markers.includes(marker)) {
+				// Marker is in this cluster - get the cluster's rendered position
+				if (cluster.marker && cluster.marker.position) {
+					// The cluster's AdvancedMarkerElement position
+					const pos = cluster.marker.position;
+					if (pos instanceof google.maps.LatLng) return pos;
+					if (typeof pos.lat === 'number' && typeof pos.lng === 'number') {
+						return new google.maps.LatLng(pos.lat, pos.lng);
+					}
+				}
+				// Fallback: calculate center from clustered markers
+				const pts = cluster.markers.map(m => {
+					if (!m.position) return null;
+					const p = m.position;
+					if (p instanceof google.maps.LatLng) return p;
+					if (typeof p.lat === 'number' && typeof p.lng === 'number') {
+						return new google.maps.LatLng(p.lat, p.lng);
+					}
+					return null;
+				}).filter(Boolean);
+				if (pts.length) {
+					const avgLat = pts.reduce((s, p) => s + p.lat(), 0) / pts.length;
+					const avgLng = pts.reduce((s, p) => s + p.lng(), 0) / pts.length;
+					return new google.maps.LatLng(avgLat, avgLng);
+				}
+			}
+		}
+	}
+
+	// Marker is not clustered - return its position
+	if (marker.position) {
+		const pos = marker.position;
+		if (pos instanceof google.maps.LatLng) return pos;
+		if (typeof pos.lat === 'number' && typeof pos.lng === 'number') {
+			return new google.maps.LatLng(pos.lat, pos.lng);
+		}
+	}
+	return null;
+}
+
+// For caching marker latitude/longitude information between refreshes...
+var __LMBMW_CACHE_KEY = "lm_bmw.cachedAddresses.v1";
+
+// Function to load the cached marker latitude/longitude information...
+function loadCache() {
+	try {
+		const obj = JSON.parse(localStorage.getItem(__LMBMW_CACHE_KEY));
+		return (obj && typeof obj === "object") ? obj : {};
+	} catch (e) { return {}; }
+}
+
+// Function to save the cached marker latitude/longitude information...
+// This key is shared by every widget instance, and each one keeps its own in-memory copy, so
+// writing that copy verbatim would discard whatever a sibling map resolved since this instance
+// loaded. Merging keeps both sets, which also lets a second map on the dashboard reuse addresses
+// the first already geocoded instead of paying for them again. This instance's values win on a
+// conflict so a re-geocoded address still updates.
+function saveCache() {
+	try {
+		localStorage.setItem(__LMBMW_CACHE_KEY, JSON.stringify(Object.assign({}, loadCache(), cachedAddresses)));
+	} catch (e) {}
+}
+// Debounced version to avoid excessive localStorage writes during batch operations
+var debouncedSaveCache = debounce(saveCache, 1000);
+
+// Function to clear cached marker locations and saved map options...
+function clearCache() {
+	try {
+		// Drop any queued write first, otherwise it would flush the addresses we are about to
+		// discard straight back into localStorage a moment after we remove the key...
+		debouncedSaveCache.cancel();
+		// The in-memory copy is the one every lookup actually reads, so removing only the
+		// localStorage key would leave the cache fully populated until the widget reloads...
+		cachedAddresses = {};
+		localStorage.removeItem(__LMBMW_CACHE_KEY);
+		clearMapOptionsCookie();
+		// Display our progress to the user (if status area is available)...
+		if (!_dom.refreshStatusArea) {
+			_dom.refreshStatusArea = getBetterMapElementById("refreshStatusArea");
+		}
+		if (_dom.refreshStatusArea) {
+			_dom.refreshStatusArea.innerHTML = "Local cache and saved map options were cleared";
+			_dom.refreshStatusArea.style.display = "flex";
+			// Add timer to remove message after 2 seconds...
+			clearTimeout(_clearCacheMessageTimeout);
+			_clearCacheMessageTimeout = setTimeout(() => {
+				if (!_dom.refreshStatusArea) return;
+				_dom.refreshStatusArea.innerHTML = "";
+				_dom.refreshStatusArea.style.display = "none";
+			}, 2000);
+		}
+	} catch (e) {}
+}
+var _clearCacheMessageTimeout = null;
+var cachedAddresses = loadCache();
+
+// Geocoding runs through a queue instead of firing every uncached address at once. A large map
+// resolving a fresh cache would otherwise open a request per item within the same batch, and
+// Google answers the overflow with OVER_QUERY_LIMIT, which this widget treats as an unresolvable
+// address: the item is deducted from the expected count and never plotted.
+//
+// The published limit is 3,000 queries per minute, which is 50 per second, counted as the sum of
+// client-side and server-side queries against the API key. That is a rate, not a number of open
+// requests, so the queue paces starts across a trailing one-second window and runs as close to
+// the ceiling as it can. Raising concurrency alone would be the wrong control: 50 requests open
+// at a typical geocode latency works out to several hundred per second, so the load would spend
+// itself being throttled and retried and finish slower than a paced one.
+var GEOCODE_MAX_QPS = 50;
+// Only needs to be high enough that it is not the binding constraint. Sustaining 50 per second
+// takes about 25 in flight once responses approach half a second, and if they get slower than
+// that, letting concurrency throttle the rate is the safer behavior.
+var GEOCODE_MAX_CONCURRENT = 49;
+var GEOCODE_MAX_ATTEMPTS = 3;
+var GEOCODE_RETRY_DELAY_MS = 1200;
+var GEOCODE_RATE_WINDOW_MS = 1000;
+var _geocodeQueue = [];
+var _geocodeActive = 0;
+// Start times of the requests issued within the trailing window, oldest first...
+var _geocodeStartTimes = [];
+var _geocodePumpTimer = null;
+var _geocodeRetryTimers = new Set();
+
+// Function to queue a geocode request, keeping only a few in flight at a time...
+function enqueueGeocode(geocoder, request, callback) {
+	_geocodeQueue.push({ geocoder: geocoder, request: request, callback: callback, attempts: 0 });
+	pumpGeocodeQueue();
+}
+
+// Function to start queued geocode requests within the rate and concurrency limits...
+function pumpGeocodeQueue() {
+	if (_geocodePumpTimer !== null) {
+		clearTimeout(_geocodePumpTimer);
+		_geocodePumpTimer = null;
+	}
+	while (_geocodeActive < GEOCODE_MAX_CONCURRENT && _geocodeQueue.length) {
+		const now = Date.now();
+		// Forget starts that have aged out, so the array holds only the trailing window...
+		while (_geocodeStartTimes.length && now - _geocodeStartTimes[0] >= GEOCODE_RATE_WINDOW_MS) {
+			_geocodeStartTimes.shift();
+		}
+		if (_geocodeStartTimes.length >= GEOCODE_MAX_QPS) {
+			// At the ceiling, so wait for the oldest start to leave the window and resume there...
+			const waitMs = GEOCODE_RATE_WINDOW_MS - (now - _geocodeStartTimes[0]) + 5;
+			_geocodePumpTimer = setTimeout(function() {
+				_geocodePumpTimer = null;
+				if (!isBetterMapInstanceActive()) return;
+				pumpGeocodeQueue();
+			}, waitMs);
+			return;
+		}
+		_geocodeStartTimes.push(now);
+		const job = _geocodeQueue.shift();
+		_geocodeActive++;
+		job.geocoder.geocode(job.request, function(results, status) {
+			_geocodeActive--;
+			// OVER_QUERY_LIMIT means we asked too quickly rather than that the address is bad, so
+			// the job goes back on the queue after a pause instead of dropping its marker...
+			if (status === "OVER_QUERY_LIMIT" && job.attempts < GEOCODE_MAX_ATTEMPTS) {
+				job.attempts++;
+				const timer = setTimeout(function() {
+					_geocodeRetryTimers.delete(timer);
+					if (!isBetterMapInstanceActive()) return;
+					_geocodeQueue.unshift(job);
+					pumpGeocodeQueue();
+				}, GEOCODE_RETRY_DELAY_MS * job.attempts);
+				_geocodeRetryTimers.add(timer);
+				return;
+			}
+			try {
+				job.callback(results, status);
+			} finally {
+				pumpGeocodeQueue();
+			}
+		});
+	}
+}
+
+// Function to drop queued geocode work at teardown...
+function cancelPendingGeocodes() {
+	_geocodeRetryTimers.forEach(timer => clearTimeout(timer));
+	_geocodeRetryTimers.clear();
+	if (_geocodePumpTimer !== null) {
+		clearTimeout(_geocodePumpTimer);
+		_geocodePumpTimer = null;
+	}
+	_geocodeStartTimes.length = 0;
+	_geocodeQueue.length = 0;
+}
+
+// For holding our LM group data...
+var groupData = [];
+// For timing our refreshes...
+var refreshStartTime = new Date();
+// For tracking when to do a full refresh...
+var pollCount = 0;
+var fullRefresh = true;
+
+// For holding our connection status data...
+var lineData = {};
+
+// Pre-populate the group path filter field...
+_dom.customGroupFilterField.value = groupPathFilter;
+
+applyPersistedMapOptionsFromCookie();
+updateResetGroupFilterButtonVisibility();
+var debouncedHandleMapOptionsAreaChange = debounce(handleMapOptionsAreaChange, 300);
+_dom.mapOptionsArea.addEventListener("change", debouncedHandleMapOptionsAreaChange);
+_dom.customGroupFilterField.addEventListener("blur", saveGroupFilterToCookie);
+_dom.customGroupFilterField.addEventListener("change", saveGroupFilterToCookie);
+
+// Set toolbar icons...
+_dom.showClearedLabel.innerHTML = clearedIcon;
+_dom.showWarningsLabel.innerHTML = warningIcon;
+_dom.showErrorsLabel.innerHTML = errorIcon;
+_dom.showCriticalsLabel.innerHTML = criticalIcon;
+_dom.showSDTLabel.innerHTML = sdtIcon;
+_dom.showConnectionsLabel.innerHTML = showConnectionsIcon;
+_dom.showConnectedLabel.innerHTML = connectedIcon;
+
+// Placeholder for marker cluster info...
+var clusterInfoWindow = null;
+var markerInfoWindow = null;
+var overlayInfoWindow = null;
+// Every map.data listener the current overlay installed, so teardown can remove all of them...
+var overlayDataListenerHandles = [];
+var mmiContourLines = [];
+
+// Track map initialization state...
+var mapInitialized = false;
+var _mapInitializing = false;
+var _mapInitRetryTimeout = null;
+var initAttempts = 0;
+var MAX_INIT_ATTEMPTS = 10;
+// Bumped whenever initialization is cancelled so an awaiting initMap() can detect it was torn down.
+var mapInitGeneration = 0;
+
+// Function to check whether this script execution is still the active widget instance...
+function isBetterMapInstanceActive() {
+	if (!betterMapInstanceId) return true;
+	var inst = betterMapRegistry.instances && betterMapRegistry.instances[betterMapInstanceId];
+	if (!inst) return false;
+	// Older CDN loaders register instances without reloadGeneration; treat them as active.
+	if (typeof inst.reloadGeneration !== "number") return true;
+	return inst.reloadGeneration === betterMapReloadGeneration;
+}
+
+// Function to check whether map operations are safe in the current SPA lifecycle...
+function isMapReady() {
+	return Boolean(map && isBetterMapInstanceActive());
+}
+
+// Function to cancel pending map initialization retries...
+function cancelPendingMapInitialization() {
+	if (_mapInitRetryTimeout) {
+		clearTimeout(_mapInitRetryTimeout);
+		_mapInitRetryTimeout = null;
+	}
+	_mapInitializing = false;
+	mapInitGeneration++;
+}
+
+// Function to tear down the Google Map instance before a widget reload...
+function destroyMapInstance() {
+	if (map) {
+		try {
+			google.maps.event.clearInstanceListeners(map);
+		} catch (error) {}
+		map = null;
+	}
+	mapInitialized = false;
+	initAttempts = 0;
+}
+
+// Function to nudge Google Maps to recalculate its size after the widget DOM is rebuilt...
+function scheduleMapResize() {
+	if (!map) return;
+	const trigger = () => {
+		if (map) google.maps.event.trigger(map, "resize");
+	};
+	trigger();
+	requestAnimationFrame(trigger);
+	setTimeout(trigger, 100);
+	setTimeout(trigger, 500);
+}
+
+// Function to initialize the map once Google Maps is available...
+async function ensureMapInitialized() {
+	if (mapInitialized || _mapInitializing) return;
+	if (!isBetterMapInstanceActive()) return;
+	_mapInitializing = true;
+
+	initAttempts++;
+	console.log(`Map ${widgetID}: initialization attempt ${initAttempts}...`);
+
+	try {
+		// Check if Google Maps API is available...
+		if (typeof google === 'undefined' || !google.maps || typeof google.maps.importLibrary !== 'function') {
+			throw new Error('Google Maps API not yet available');
+		}
+
+		// Check if map container exists and has dimensions...
+		const mapContainer = getBetterMapElementById('googleMap');
+		if (!mapContainer) {
+			throw new Error('Map container element not found');
+		}
+
+		// Get computed dimensions - container may exist but have no size yet...
+		const rect = mapContainer.getBoundingClientRect();
+		if (rect.width === 0 || rect.height === 0) {
+			throw new Error('Map container has no dimensions yet');
+		}
+
+		// All checks passed - initialize the map...
+		const initialized = await initMap();
+		if (!initialized || !isBetterMapInstanceActive()) {
+			_mapInitializing = false;
+			return;
+		}
+		mapInitialized = true;
+		_mapInitializing = false;
+		if (typeof _visibilityObserver !== 'undefined') _visibilityObserver.disconnect();
+		if (typeof _focusHandler !== 'undefined') window.removeEventListener('focus', _focusHandler);
+		console.log(`Map ${widgetID} initialized successfully`);
+
+	} catch (error) {
+		if (!isBetterMapInstanceActive()) {
+			_mapInitializing = false;
+			return;
+		}
+		_mapInitializing = false;
+		console.warn(`Map ${widgetID}: init attempt ${initAttempts} failed:`, error.message);
+
+		if (initAttempts < MAX_INIT_ATTEMPTS) {
+			// Exponential backoff: 100ms, 200ms, 400ms, etc. up to 2 seconds...
+			const delay = Math.min(100 * Math.pow(2, initAttempts - 1), 2000);
+			console.log(`Map ${widgetID}: Retrying in ${delay}ms...`);
+			_mapInitRetryTimeout = setTimeout(ensureMapInitialized, delay);
+		} else {
+			console.error(`Map ${widgetID}: Max initialization attempts reached. Map failed to initialize.`);
+		}
+	}
+}
+
+// Start initialization when DOM is ready...
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', ensureMapInitialized);
+} else {
+	// DOM already ready - use requestAnimationFrame to ensure rendering is complete...
+	requestAnimationFrame(() => {
+		requestAnimationFrame(ensureMapInitialized);
+	});
+}
+
+// Also handle visibility changes (widget may be in a hidden tab initially)...
+var _visibilityObserver;
+var mapContainer = getBetterMapElementById('googleMap');
+if (mapContainer && typeof IntersectionObserver !== 'undefined') {
+	_visibilityObserver = new IntersectionObserver((entries) => {
+		entries.forEach(entry => {
+			if (entry.isIntersecting && !mapInitialized) {
+				console.log(`Map ${widgetID}: container became visible, attempting initialization...`);
+				ensureMapInitialized();
+			}
+		});
+	}, { threshold: 0.1 });
+	_visibilityObserver.observe(mapContainer);
+}
+
+// Fallback: Also try when window is focused (handles tab switching)...
+var _focusHandler = () => {
+	if (!mapInitialized) {
+		console.log(`Map ${widgetID}: Window focused, checking map initialization...`);
+		setTimeout(ensureMapInitialized, 100);
+	}
+};
+window.addEventListener('focus', _focusHandler);
+
+
+// ----- FUNCTIONS
+
+// Function to create our map...
+// Returns true when the map was fully built, or false when the widget was torn down mid-init.
+async function initMap() {
+	// LogicMonitor can re-save this widget while the library imports below are still pending.
+	// Anything created after that point would be unreachable by the new instance's cleanup.
+	const thisInitGeneration = mapInitGeneration;
+	const initStillCurrent = () => thisInitGeneration === mapInitGeneration && isBetterMapInstanceActive();
+
+	// Load some libraries needed by Google Maps...
+	const { Map, RenderingType, InfoWindow } = await google.maps.importLibrary("maps");
+	const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary("marker");
+	const { ColorScheme } = await google.maps.importLibrary("core");
+	await google.maps.importLibrary("geometry");
+
+	if (!initStillCurrent()) return false;
+
+	// CustomInfoWindow class - allows positioning InfoWindows to left/right/top/bottom of a point
+	// Defined here after Google Maps API is loaded so google.maps.OverlayView is available
+	window.CustomInfoWindow = class extends google.maps.OverlayView {
+		constructor(options = {}) {
+			super();
+			this.position = options.position || null;
+			this.content = options.content || '';
+			this.anchor = options.anchor || 'right'; // 'top', 'bottom', 'left', 'right'
+			this.offset = options.offset || 20; // pixels from the point
+			this.clickThrough = options.clickThrough || false;
+			this.div = null;
+			this.isOpen = false;
+		}
+
+		onAdd() {
+			this.div = document.createElement('div');
+			this.div.className = 'custom-info-window';
+			this.div.style.cssText = `
+				position: absolute;
+				background: white;
+				border-radius: 8px;
+				box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+				padding: 12px 12px 12px 12px;
+				min-width: 150px;
+				max-width: 400px;
+				z-index: 1000;
+				font-family: Roboto, Arial, sans-serif;
+				font-size: 13px;
+				line-height: 1.4;
+			`;
+
+			if (this.clickThrough) {
+				this.div.style.pointerEvents = 'none';
+			} else {
+				this.div.addEventListener('click', (e) => e.stopPropagation());
+				this.div.addEventListener('mousedown', (e) => e.stopPropagation());
+				this.div.addEventListener('mouseup', (e) => e.stopPropagation());
+				this.div.addEventListener('dblclick', (e) => e.stopPropagation());
+				this.div.addEventListener('wheel', (e) => {
+					let el = e.target;
+					while (el && el !== this.div) {
+						if (el.scrollHeight > el.clientHeight) {
+							e.stopPropagation();
+							return;
+						}
+						el = el.parentElement;
+					}
+				});
+			}
+
+			// Add close button
+			const closeBtn = document.createElement('div');
+				closeBtn.innerHTML = '&times;';
+			closeBtn.style.cssText = `
+				position: absolute;
+				top: 5px;
+				right: 10px;
+				cursor: pointer;
+				font-size: 20px;
+				color: #666;
+				font-weight: bold;
+				line-height: 1;
+				z-index: 1001;
+			`;
+			closeBtn.onclick = (e) => {
+				e.stopPropagation();
+				this.close();
+			};
+			closeBtn.onmouseover = () => closeBtn.style.color = '#333';
+			closeBtn.onmouseout = () => closeBtn.style.color = '#666';
+			this.div.appendChild(closeBtn);
+
+			// Add content container
+			const contentDiv = document.createElement('div');
+			contentDiv.className = 'custom-info-content';
+			contentDiv.innerHTML = this.content;
+			contentDiv.style.marginRight = '15px'; // Space for close button
+			this.div.appendChild(contentDiv);
+
+			// Add arrow/pointer
+			this.arrow = document.createElement('div');
+			this.arrow.style.cssText = `
+				position: absolute;
+				width: 0;
+				height: 0;
+				border: 10px solid transparent;
+			`;
+			this.updateArrowStyle();
+			this.div.appendChild(this.arrow);
+
+			this.getPanes().floatPane.appendChild(this.div);
+		}
+
+		updateArrowStyle() {
+			if (!this.arrow) return;
+
+			// Reset arrow styles
+			this.arrow.style.borderTopColor = 'transparent';
+			this.arrow.style.borderBottomColor = 'transparent';
+			this.arrow.style.borderLeftColor = 'transparent';
+			this.arrow.style.borderRightColor = 'transparent';
+			this.arrow.style.top = 'auto';
+			this.arrow.style.bottom = 'auto';
+			this.arrow.style.left = 'auto';
+			this.arrow.style.right = 'auto';
+			this.arrow.style.transform = '';
+
+			switch(this.anchor) {
+				case 'left': // InfoWindow is to the LEFT of point, arrow points RIGHT
+					this.arrow.style.borderLeftColor = 'white';
+					this.arrow.style.right = '-20px';
+					this.arrow.style.top = '50%';
+					this.arrow.style.transform = 'translateY(-50%)';
+					break;
+				case 'right': // InfoWindow is to the RIGHT of point, arrow points LEFT
+					this.arrow.style.borderRightColor = 'white';
+					this.arrow.style.left = '-20px';
+					this.arrow.style.top = '50%';
+					this.arrow.style.transform = 'translateY(-50%)';
+					break;
+				case 'bottom': // InfoWindow is BELOW point, arrow points UP
+					this.arrow.style.borderBottomColor = 'white';
+					this.arrow.style.top = '-20px';
+					this.arrow.style.left = '50%';
+					this.arrow.style.transform = 'translateX(-50%)';
+					break;
+				case 'top': // InfoWindow is ABOVE point (default Google behavior), arrow points DOWN
+				default:
+					this.arrow.style.borderTopColor = 'white';
+					this.arrow.style.bottom = '-20px';
+					this.arrow.style.left = '50%';
+					this.arrow.style.transform = 'translateX(-50%)';
+					break;
+			}
+		}
+
+		draw() {
+			if (!this.div || !this.position) return;
+
+			const projection = this.getProjection();
+			if (!projection) return;
+
+			const pos = projection.fromLatLngToDivPixel(this.position);
+			if (!pos) return;
+
+			// Get actual dimensions after content is rendered
+			const width = this.div.offsetWidth;
+			const height = this.div.offsetHeight;
+
+			// Calculate and apply position based on anchor
+			switch(this.anchor) {
+				case 'left': // Position to the LEFT of the point
+					this.div.style.left = (pos.x - width - this.offset) + 'px';
+					this.div.style.top = (pos.y - height / 2) + 'px';
+					break;
+				case 'right': // Position to the RIGHT of the point
+					this.div.style.left = (pos.x + this.offset) + 'px';
+					this.div.style.top = (pos.y - height / 2) + 'px';
+					break;
+				case 'bottom': // Position BELOW the point
+					this.div.style.left = (pos.x - width / 2) + 'px';
+					this.div.style.top = (pos.y + this.offset) + 'px';
+					break;
+				case 'top': // Position ABOVE the point (like default InfoWindow)
+				default:
+					this.div.style.left = (pos.x - width / 2) + 'px';
+					this.div.style.top = (pos.y - height - this.offset) + 'px';
+					break;
+			}
+		}
+
+		onRemove() {
+			if (this.div && this.div.parentNode) {
+				this.div.parentNode.removeChild(this.div);
+				this.div = null;
+			}
+			this.isOpen = false;
+		}
+
+		setPosition(latLng) {
+			this.position = latLng;
+			this.draw();
+		}
+
+		setContent(content) {
+			this.content = content;
+			if (this.div) {
+				const contentDiv = this.div.querySelector('.custom-info-content');
+				if (contentDiv) contentDiv.innerHTML = content;
+				this.draw(); // Redraw to adjust for new content size
+			}
+		}
+
+		setAnchor(anchor) {
+			this.anchor = anchor;
+			this.updateArrowStyle();
+			this.draw();
+		}
+
+		open(map) {
+			this.setMap(map);
+			this.isOpen = true;
+			// Delay pan check to ensure content is fully rendered and dimensions are calculated
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					this.autoPan();
+				});
+			});
+		}
+
+		autoPan() {
+			if (!this.div || !this.position || !this.getMap()) return;
+
+			const map = this.getMap();
+			const mapDiv = map.getDiv();
+
+			// Get the actual bounding rectangles to compare screen positions
+			const mapRect = mapDiv.getBoundingClientRect();
+			const infoRect = this.div.getBoundingClientRect();
+
+			let panX = 0;
+			let panY = 0;
+			const padding = 10; // Small padding from edges after panning
+
+			// Check if InfoWindow extends past right edge of map
+			if (infoRect.right > mapRect.right) {
+				panX = (infoRect.right - mapRect.right) + padding;
+			}
+			// Check if InfoWindow extends past left edge of map
+			else if (infoRect.left < mapRect.left) {
+				panX = (infoRect.left - mapRect.left) - padding;
+			}
+
+			// Check if InfoWindow extends past bottom edge of map
+			if (infoRect.bottom > mapRect.bottom) {
+				panY = (infoRect.bottom - mapRect.bottom) + padding;
+			}
+			// Check if InfoWindow extends past top edge of map
+			else if (infoRect.top < mapRect.top) {
+				panY = (infoRect.top - mapRect.top) - padding;
+			}
+
+			// Only pan if the InfoWindow actually extends outside the viewport
+			if (panX !== 0 || panY !== 0) {
+				map.panBy(panX, panY);
+			}
+		}
+
+		close() {
+			this.setMap(null);
+			this.isOpen = false;
+		}
+	}
+
+	// SatelliteLightOverlay class - creates a semi-transparent white overlay below markers to lighten satellite imagery
+	window.SatelliteLightOverlay = class extends google.maps.OverlayView {
+		constructor() {
+			super();
+			this.div = null;
+		}
+
+		onAdd() {
+			this.div = document.createElement('div');
+			this.div.style.position = 'absolute';
+			this.div.style.backgroundColor = 'rgba(255, 255, 255, 0.25)';
+			this.div.style.pointerEvents = 'none';
+			// Add to the mapPane (lowest pane, below markers and overlays)
+			const panes = this.getPanes();
+			panes.mapPane.appendChild(this.div);
+		}
+
+		draw() {
+			if (!this.div) return;
+			const projection = this.getProjection();
+			if (!projection) return;
+			const bounds = this.getMap().getBounds();
+			if (!bounds) return;
+
+			const sw = projection.fromLatLngToDivPixel(bounds.getSouthWest());
+			const ne = projection.fromLatLngToDivPixel(bounds.getNorthEast());
+
+			// Extend beyond visible bounds to cover during panning
+			const padding = 1000;
+			this.div.style.left = (sw.x - padding) + 'px';
+			this.div.style.top = (ne.y - padding) + 'px';
+			this.div.style.width = (ne.x - sw.x + padding * 2) + 'px';
+			this.div.style.height = (sw.y - ne.y + padding * 2) + 'px';
+		}
+
+		onRemove() {
+			if (this.div && this.div.parentNode) {
+				this.div.parentNode.removeChild(this.div);
+				this.div = null;
+			}
+		}
+	}
+
+	// Create our Google Map...
+	map = new google.maps.Map(getBetterMapElementById("googleMap"), {
+		zoom: defaultMapZoom,
+		center: { lat: 0, lng: 0 },
+		mapId: "DEMO_MAP_ID",
+		// colorScheme: ColorScheme.DARK,
+		colorScheme: ColorScheme.LIGHT,
+		zoomControl: true,
+		cameraControl: false,
+		mapTypeControl: false,
+		// scaleControl: boolean,
+		streetViewControl: false,
+		rotateControl: false,
+		fullscreenControl: true,
+		tilt: mapTilt,
+		heading: mapHeading,
+		gestureHandling: mapGestureHandling,
+		renderingType: showMapTiltControls ? RenderingType.VECTOR : RenderingType.RASTER,
+		isFractionalZoomEnabled: true,
+		minZoom: 2,
+		clickableIcons: false,
+	});
+
+	// Redraw polylines after zoom/pan/drag completes...
+	map.addListener("idle", () => schedulePolylineEndpointUpdate());
+
+	// Vector maps are nicer but sometimes don't load right away. Plus they're mainly useful if tilt controls are enabled, so use the normal raster map by default...
+	// if (showMapTiltControls) {
+	// 	map.setRenderingType(RenderingType.VECTOR);
+	// };
+
+	// Add some custom controls to the map...
+	const weatherControlDiv = document.createElement("div");
+	// Create a button to the map for toggling visibility of the options bar...
+	const weatherControls = createWeatherToggleControl(map);
+	weatherControlDiv.appendChild(weatherControls);
+
+	// Create a div to hold our refresh & zoom reset buttons...
+	const weatherControlButtonDiv = document.createElement("div");
+	weatherControlButtonDiv.style.display = "flex";
+	weatherControlButtonDiv.style.flexDirection = "column";
+	weatherControlButtonDiv.style.backgroundColor = "rgb(255 255 255)";
+	weatherControlButtonDiv.style.border = "0";
+	weatherControlButtonDiv.style.borderRadius = "3px";
+	weatherControlButtonDiv.style.boxShadow = "0 1px 4px rgba(0,0,0,0.3)";
+	weatherControlButtonDiv.style.width = "40px";
+	weatherControlButtonDiv.style.height = "81px";
+	weatherControlButtonDiv.style.margin = "0 10px";
+	// Create a button to force-refresh the map data...
+	const weatherRefreshControl = createWeatherRefreshControl(map);
+	weatherControlButtonDiv.appendChild(weatherRefreshControl);
+	const weatherControlDivider = document.createElement("div");
+	// Create a divider between the two buttons...
+	weatherControlDivider.innerHTML = '<div style="position: relative; overflow: hidden; width: 30px; height: 1px; margin: 0px 5px; background-color: rgb(230, 230, 230); top: 0px;"></div>';
+	weatherControlButtonDiv.appendChild(weatherControlDivider);
+	// Create a button to reset the zoom on the map...
+	const mapZoomResetControl = createZoomResetControl(map);
+	weatherControlButtonDiv.appendChild(mapZoomResetControl);
+	// Add our button div to our custom map controls...
+	weatherControlDiv.appendChild(weatherControlButtonDiv);
+	// Attach our controls to the map...
+	map.controls[google.maps.ControlPosition.TOP_LEFT].push(weatherControlDiv);
+
+	// Optionally create a div to hold our map tilt & heading buttons...
+	if (showMapTiltControls) {
+		const mapControlButtonDiv = document.createElement("div");
+		mapControlButtonDiv.style.display = "flex";
+		mapControlButtonDiv.style.flexDirection = "column";
+		mapControlButtonDiv.style.backgroundColor = "rgb(255 255 255)";
+		mapControlButtonDiv.style.border = "0";
+		mapControlButtonDiv.style.borderRadius = "20px";
+		mapControlButtonDiv.style.boxShadow = "0 1px 3px rgba(0,0,0,0.3)";
+		mapControlButtonDiv.style.width = "40px";
+		mapControlButtonDiv.style.margin = "0 10px";
+		mapControlButtonDiv.style.alignItems = "center";
+		mapControlButtonDiv.style.padding = "5px 0";
+		// Create a button to tilt the map forward...
+		const mapRotateForwardControl = createRotateForwardControl(map);
+		mapControlButtonDiv.appendChild(mapRotateForwardControl);
+		// Create a button to tilt the map backward...
+		const mapRotateBackControl = createRotateBackControl(map);
+		mapControlButtonDiv.appendChild(mapRotateBackControl);
+		// Create a button to rotate the map right...
+		const mapRotateRightControl = createRotateRightControl(map);
+		mapControlButtonDiv.appendChild(mapRotateRightControl);
+		// Create a button to rotate the map left...
+		const mapRotateLeftControl = createRotateLeftControl(map);
+		mapControlButtonDiv.appendChild(mapRotateLeftControl);
+		// Attach our controls to the map...
+		map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(mapControlButtonDiv);
+	}
+
+	// Create a button to toggle the sidebar...
+	const sidebarToggle = createSidebarToggleControl(map);
+	map.controls[google.maps.ControlPosition.INLINE_END_BLOCK_START].push(sidebarToggle);
+	initSidebarResize();
+
+	// Add an area to display when we're updating...
+	const updateAreaDiv = await createUpdateArea(map);
+
+	// Bail out before starting any weather or refresh timers this instance could no longer clear...
+	if (!initStillCurrent()) {
+		destroyMapInstance();
+		return false;
+	}
+
+	// *** MAP THEME ***
+	// Set our map theme (can be set via default at beginning of this script or via a "MapStyle" dashboard token)...
+	if (mapStyle == "satellite") {
+		// Use Google Maps built-in satellite imagery...
+		map.setMapTypeId("satellite");
+		weatherOpacity = satelliteWeatherOpacity;
+	} else if (mapStyle == "satellite-light") {
+		// Use Google Maps built-in satellite imagery with lightened appearance for better icon/overlay visibility...
+		map.setMapTypeId("satellite");
+		const satelliteLightOverlay = new SatelliteLightOverlay();
+		satelliteLightOverlay.setMap(map);
+		weatherOpacity = satelliteWeatherOpacity;
+	} else {
+		const styleData = mapStyles[mapStyle] || mapStyles.silver;
+		const styledMapType = new google.maps.StyledMapType(styleData);
+		map.mapTypes.set("customMapStyle", styledMapType);
+		map.setMapTypeId("customMapStyle");
+	}
+
+	// Toggle visibility of our weather options...
+	enableWeather();
+
+	// Toggle hiding the options bar if set as the default...
+	if (hideMapOptionsByDefault) {
+		getBetterMapElementById("optionsBar").classList.remove("optionsVisible");
+		getBetterMapElementById("optionsBar").classList.add("optionsHidden");
+	}
+
+	// Load our LogicMonitor data only after we know our update area has been created...
+	waitForElm('#refreshStatusArea').then((elm) => {
+		// console.log('Element is ready');
+		if (!elm) return;
+		refreshGroupData();
+	});
+
+	// Refresh the map data at regular intervals (using the 'statusUpdateIntervalMinutes' variable set near the top of this script)...
+	if (!developmentFlag) {
+		clearInterval(mapDataRefresher);
+		mapDataRefresher = setInterval(function() {
+			refreshGroupData(true);
+			console.log(`Map ${widgetID}: data refreshed.`);
+		}, statusUpdateIntervalMinutes*1000*60);
+	}
+
+	scheduleMapResize();
+	return true;
+}
+
+// Function for creating & styling the map button for toggling the options bar...
+function createWeatherToggleControl(map) {
+	const weatherToggle = document.createElement("button");
+
+	weatherToggle.id = "weatherControlToggle";
+	weatherToggle.style.backgroundColor = "rgb(255 255 255)";
+	weatherToggle.style.border = "0";
+	weatherToggle.style.borderRadius = "3px";
+	weatherToggle.style.boxShadow = "0 1px 4px rgba(0,0,0,0.3)";
+	// weatherToggle.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+	weatherToggle.style.cursor = "pointer";
+	weatherToggle.style.fontSize = "x-large";
+	weatherToggle.style.textAlign = "center";
+	weatherToggle.style.margin = "10px";
+	weatherToggle.style.height = "40px";
+	weatherToggle.style.width = "40px";
+	weatherToggle.style.verticalAlign = "middle";
+	// weatherToggle.innerHTML = 'Toggle Controls';
+	weatherToggle.title = "Toggle visibility of the map controls";
+	if (hideMapOptionsByDefault) {
+		weatherToggle.innerHTML = optionsToggleHiddenIcon;
+	} else {
+		weatherToggle.innerHTML = optionsToggleVisibleIcon;
+	}
+	weatherToggle.type = "button";
+
+	weatherToggle.addEventListener("click", () => {
+		const optionsBar = getBetterMapElementById("optionsBar");
+		if (optionsBar.classList.contains("optionsHidden")) {
+			optionsBar.classList.remove("optionsHidden");
+			optionsBar.classList.add("optionsVisible");
+			weatherToggle.innerHTML = optionsToggleVisibleIcon;
+		} else {
+			optionsBar.classList.remove("optionsVisible");
+			optionsBar.classList.add("optionsHidden");
+			weatherToggle.innerHTML = optionsToggleHiddenIcon;
+		}
+	});
+
+	return weatherToggle;
+}
+
+// Function to create the refresh button control...
+function createWeatherRefreshControl(map) {
+	return createMapControlButton({
+		id: "weatherRefreshButton",
+		title: "Force refresh the map data",
+		innerHTML: '<svg viewBox="-0.5 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M7.1998 10.8799L3.9998 14.0799L0.799805 10.8799" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path d="M17.72 6.77007C16.6086 5.63347 15.1839 4.85371 13.6275 4.53032C12.0711 4.20693 10.4536 4.35459 8.98145 4.95439C7.5093 5.5542 6.24924 6.57899 5.362 7.898C4.47476 9.21701 4.0006 10.7703 4 12.3599V14.0901" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path d="M16.7998 13.96L19.9998 10.75L23.1998 13.96" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> <path d="M6.28027 18.0801C7.39163 19.2167 8.8164 19.9962 10.3728 20.3196C11.9292 20.643 13.5467 20.4956 15.0188 19.8958C16.491 19.2959 17.751 18.2712 18.6383 16.9521C19.5255 15.6331 19.9997 14.0796 20.0003 12.49V10.76" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+		// Wrapped so the click event is not passed through as refreshGroupData's timedRefresh flag...
+		onClick: () => refreshGroupData()
+	});
+}
+
+// Function to create the reset zoom button control...
+function createZoomResetControl(map) {
+	return createMapControlButton({
+		id: "weatherZoomResetButton",
+		title: "Reset map zoom",
+		innerHTML: '<svg xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:svg="http://www.w3.org/2000/svg" xmlns="http://www.w3.org/2000/svg" width="25px" height="25px" viewBox="0 0 400 400.00001" id="svg2" version="1.1" inkscape:version="0.91 r13725" sodipodi:docname="minimize.svg"> <defs id="defs4" /> <g transform="translate(0,-652.36216)"> <path style="opacity:1;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1" d="M 17.6035,652.36212 0,670.05352 l 108.5469,109.0918 -84.0235,0 0,25.0195 126.5235,0 0,-127.1563 -24.8965,0 0,84.4434 -108.5469,-109.0898 z m 364.793,0 -108.5469,109.0898 0,-84.4434 -24.8965,0 0,127.1563 126.5235,0 0,-25.0195 -84.0235,0 L 400,670.05352 382.3965,652.36212 Z M 24.5234,900.5593 l 0,25.0196 84.0235,0 L 0,1034.6708 l 17.6035,17.6914 108.5469,-109.09 0,84.4435 24.8965,0 0,-127.1564 -126.5235,0 z m 224.4297,0 0,127.1564 24.8965,0 0,-84.4435 108.5469,109.09 L 400,1034.6708 291.4531,925.5789 l 84.0235,0 0,-25.0196 -126.5235,0 z" id="minimize"> <title id="title23704">Reset map zoom</title></path></g></svg>',
+		onClick: resetZoom
+	});
+}
+
+// Function to create the sidebar toggle button control...
+function createSidebarToggleControl(map) {
+	const btn = document.createElement("button");
+	btn.id = "sidebarToggleButton";
+	btn.style.backgroundColor = "rgb(255 255 255)";
+	btn.style.border = "0";
+	btn.style.borderRadius = "3px";
+	btn.style.boxShadow = "0 1px 4px rgba(0,0,0,0.3)";
+	btn.style.cursor = "pointer";
+	btn.style.textAlign = "center";
+	btn.style.margin = "0 10px 10px 10px";
+	btn.style.height = "40px";
+	btn.style.width = "40px";
+	btn.style.verticalAlign = "middle";
+	btn.title = "Toggle sidebar";
+	btn.type = "button";
+	const sidebarStartsVisible = showMapSidebarByDefault;
+	btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" style="width: 25px; height: 25px; transform: rotate(' + (sidebarStartsVisible ? '90' : '-90') + 'deg);"><rect x="10" y="42" width="428" height="428" rx="54" ry="54" fill="none" stroke="#000000" stroke-width="20"/><path fill="#000000" d="M241.6 175.7C237.1 170.8 230.7 168 224 168S210.9 170.8 206.4 175.7l-96 104c-6.469 7-8.188 17.19-4.375 25.91C109.8 314.3 118.5 320 127.1 320h192c9.531 0 18.16-5.656 22-14.38c3.813-8.719 2.094-18.91-4.375-25.91L241.6 175.7z"/></svg>';
+
+	if (!sidebarStartsVisible) {
+		const sidebar = _dom.sidebarArea;
+		const mapEl = getBetterMapElementById("googleMap");
+		const handle = _dom.sidebarResizeHandle;
+		if (sidebar) {
+			sidebar.classList.add("sidebar-hidden");
+			mapEl.classList.add("sidebar-hidden");
+			if (handle) handle.classList.add("sidebar-hidden");
+		}
+	}
+
+	btn.addEventListener("click", () => {
+		const sidebar = _dom.sidebarArea;
+		const mapEl = getBetterMapElementById("googleMap");
+		const handle = _dom.sidebarResizeHandle;
+		if (!sidebar) return;
+		const svg = btn.querySelector("svg");
+		if (sidebar.classList.contains("sidebar-hidden")) {
+			sidebar.classList.remove("sidebar-hidden");
+			if (sidebarDefaultWidth) sidebar.style.width = sidebarDefaultWidth + "px";
+			mapEl.classList.remove("sidebar-hidden");
+			if (handle) handle.classList.remove("sidebar-hidden");
+			svg.style.transform = "rotate(90deg)";
+			// Pick up anything that refreshed while the sidebar was collapsed...
+			if (_sidebarNeedsRebuild) populateSidebar();
+		} else {
+			sidebar.style.width = "";
+			sidebar.classList.add("sidebar-hidden");
+			mapEl.classList.add("sidebar-hidden");
+			if (handle) handle.classList.add("sidebar-hidden");
+			svg.style.transform = "rotate(-90deg)";
+		}
+	});
+
+	return btn;
+}
+
+// Function to resolve the sidebar's minimum width in pixels...
+function getSidebarMinWidthPx() {
+	const value = Number(sidebarMinWidth);
+	return Number.isFinite(value) && value > 0 ? value : 220;
+}
+
+// Function to resolve the sidebar's maximum width as a percentage of the widget...
+function getSidebarMaxWidthPercent() {
+	const value = Number(sidebarMaxWidth);
+	return Number.isFinite(value) && value > 0 && value <= 100 ? value : 40;
+}
+
+// Function to initialize sidebar resize drag handling...
+function initSidebarResize() {
+	const handle = _dom.sidebarResizeHandle;
+	const sidebar = _dom.sidebarArea;
+	const container = getBetterMapElementById("mapContainer");
+	if (!handle || !sidebar || !container) return;
+
+	// These feed the stylesheet's min-width/max-width through custom properties rather than being
+	// set as inline min-width/max-width. An inline value outranks every selector, so the collapsed
+	// rule's "min-width: 0" could not win and the sidebar stayed at its minimum width when hidden.
+	// Going through a variable lets the configured limits apply while expanded and still leaves the
+	// collapse rule in charge...
+	sidebar.style.setProperty("--bmw-sidebar-min-width", getSidebarMinWidthPx() + "px");
+	sidebar.style.setProperty("--bmw-sidebar-max-width", getSidebarMaxWidthPercent() + "%");
+
+	let startX, startWidth;
+
+	handle.addEventListener("mousedown", (e) => {
+		e.preventDefault();
+		startX = e.clientX;
+		startWidth = sidebar.getBoundingClientRect().width;
+		handle.classList.add("dragging");
+		document.body.style.cursor = "col-resize";
+		document.body.style.userSelect = "none";
+		document.addEventListener("mousemove", onMouseMove);
+		document.addEventListener("mouseup", onMouseUp);
+	});
+
+	// Function to resize the sidebar while dragging...
+	function onMouseMove(e) {
+		const delta = startX - e.clientX;
+		const maxWidth = container.getBoundingClientRect().width * (getSidebarMaxWidthPercent() / 100);
+		const newWidth = Math.max(getSidebarMinWidthPx(), Math.min(startWidth + delta, maxWidth));
+		sidebar.style.width = newWidth + "px";
+	}
+
+	// Function to stop sidebar resizing after dragging...
+	function onMouseUp() {
+		handle.classList.remove("dragging");
+		document.body.style.cursor = "";
+		document.body.style.userSelect = "";
+		sidebarDefaultWidth = sidebar.getBoundingClientRect().width;
+		document.removeEventListener("mousemove", onMouseMove);
+		document.removeEventListener("mouseup", onMouseUp);
+	}
+}
+
+// Function to create the rotate-right control...
+function createRotateRightControl(map) {
+	return createMapControlButton({
+		id: "mapRotateRightButton",
+		title: "Rotate Map Right",
+		size: "30px",
+		innerHTML: '<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"> <path id="Path" fill="#000000" stroke="none" d="M 30.322001 21.322001 C 30.228001 21.277 30.118999 21.250999 30.003 21.250999 C 29.705 21.250999 29.448 21.423 29.323999 21.673 L 29.322001 21.677 C 27.145 26.191999 22.604 29.250999 17.348 29.250999 C 10.03 29.250999 4.097 23.318001 4.097 16 C 4.097 8.681999 10.029 2.75 17.347 2.749001 L 17.347 2.749001 C 17.358999 2.749001 17.374001 2.749001 17.389 2.749001 C 21.684999 2.749001 25.499001 4.813 27.893 8.003 L 27.917 8.036999 L 22.274 8.036999 C 21.860001 8.036999 21.524 8.373001 21.524 8.786999 C 21.524 9.201 21.860001 9.536999 22.274 9.536999 L 22.274 9.536999 L 29.346001 9.536999 C 29.365 9.536999 29.381001 9.527 29.4 9.526001 C 29.507 9.512001 29.603001 9.483 29.693001 9.442001 L 29.687 9.445 C 29.702 9.437 29.718 9.437 29.733 9.429001 C 29.754999 9.410999 29.775 9.393 29.792999 9.374001 L 29.792999 9.374001 C 29.837 9.341 29.875999 9.306 29.910999 9.265999 L 29.912001 9.264999 C 29.938999 9.232 29.965 9.195 29.986 9.156 L 29.988001 9.152 C 30.038 9.071999 30.07 8.977001 30.079 8.875 L 30.079 8.873001 C 30.086 8.848999 30.091999 8.82 30.096001 8.790001 L 30.096001 8.785999 L 30.096001 1.715 C 30.096001 1.301001 29.76 0.965 29.346001 0.965 C 28.931999 0.965 28.596001 1.301001 28.596001 1.715 L 28.596001 1.715 L 28.596001 6.485001 C 25.898001 3.275 21.881001 1.247999 17.391001 1.247999 C 17.375 1.247999 17.358999 1.247999 17.344 1.247999 L 17.346001 1.247999 C 9.201 1.25 2.6 7.853001 2.6 15.998001 C 2.6 24.143999 9.204 30.747999 17.35 30.747999 C 23.198999 30.747999 28.253 27.344 30.638 22.408001 L 30.676001 22.32 C 30.722 22.226 30.747999 22.115 30.747999 21.997999 C 30.747999 21.701 30.575001 21.444 30.325001 21.322001 L 30.320999 21.32 Z"/> </svg>',
+		onClick: () => adjustMap("rotate", -5)
+	});
+}
+
+// Function to create the rotate-left control...
+function createRotateLeftControl(map) {
+	return createMapControlButton({
+		id: "mapRotateLeftButton",
+		title: "Rotate Map Left",
+		size: "30px",
+		innerHTML: '<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"> <path id="Path" fill="#000000" stroke="none" d="M 16 1.25 C 15.987 1.25 15.971 1.25 15.956 1.25 C 11.466 1.25 7.448 3.276001 4.769 6.464001 L 4.751 6.486 L 4.751 1.716999 C 4.751 1.302999 4.415 0.966999 4.001 0.966999 C 3.587 0.966999 3.251 1.302999 3.251 1.716999 L 3.251 1.716999 L 3.251 8.788 C 3.255 8.818001 3.261 8.845001 3.268 8.869999 L 3.267 8.865 C 3.275 8.970001 3.307 9.067001 3.358 9.15 L 3.356 9.146999 C 3.381 9.193001 3.408 9.232 3.438 9.269001 L 3.437 9.268 C 3.471 9.306 3.508 9.34 3.548 9.369999 L 3.55 9.371 C 3.57 9.390999 3.59 9.41 3.612 9.428001 L 3.613 9.429001 C 3.628 9.438 3.645 9.438 3.661 9.445999 C 3.703 9.466999 3.751 9.485001 3.802 9.497 L 3.807 9.498001 C 3.847 9.511 3.894 9.521 3.942 9.526001 L 3.945 9.526001 C 3.964 9.527 3.981 9.536999 4.001 9.536999 L 11.072 9.536999 C 11.486 9.536999 11.822 9.201 11.822 8.786999 C 11.822 8.373001 11.486 8.036999 11.072 8.036999 L 11.072 8.036999 L 5.429 8.036999 C 7.848 4.813 11.662 2.749001 15.958 2.749001 C 15.973 2.749001 15.988 2.749001 16.003 2.749001 L 16.000999 2.749001 C 23.318001 2.750999 29.247999 8.681999 29.247999 15.999001 C 29.247999 23.316 23.316 29.249001 15.998 29.249001 C 10.743 29.249001 6.203 26.190001 4.061 21.756001 L 4.027 21.677 C 3.903 21.423 3.647 21.250999 3.35 21.250999 C 2.936 21.250999 2.6 21.587 2.6 22.000999 C 2.6 22.117001 2.626 22.226999 2.674 22.325001 L 2.672 22.32 C 5.095 27.344999 10.15 30.750999 16.000999 30.750999 C 24.148001 30.750999 30.752001 24.146999 30.752001 16 C 30.752001 7.853001 24.148001 1.249001 16.002001 1.249001 L 16.002001 1.249001 Z"/> </svg>',
+		onClick: () => adjustMap("rotate", 5)
+	});
+}
+
+// Function to create the tilt-forward control...
+function createRotateForwardControl(map) {
+	return createMapControlButton({
+		id: "mapRotateForwardButton",
+		title: "Rotate Map Up",
+		size: "30px",
+		innerHTML: '<svg viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"> <g id="Group"> <path id="Path" fill="#000000" stroke="#000000" stroke-width="2" d="M 55.341 31.229 C 54.884998 30.773998 54.144001 30.773998 53.689999 31.229 L 49.511002 35.408001 C 49.466999 26.040001 47.863998 17.225998 44.964001 10.553001 C 41.889999 3.484001 37.687 -0.410004 33.125 -0.410004 C 23.926001 -0.410004 16.725 15.494999 16.725 35.795002 C 16.725 56.097 23.929001 72 33.125 72 C 33.769001 72 34.292 71.475998 34.292 70.831993 C 34.292 70.188995 33.769001 69.663994 33.125 69.663994 C 25.5 69.663994 19.061001 54.153 19.061001 35.795002 C 19.061001 17.438 25.502001 1.926003 33.125 1.926003 C 36.651001 1.926003 40.181 5.411003 42.823002 11.486 C 45.598999 17.865997 47.136002 26.34 47.175999 35.389 L 43.02 31.229 C 42.566002 30.773998 41.825001 30.773998 41.368999 31.229 C 40.915001 31.685001 40.915001 32.424999 41.368999 32.880001 L 48.353001 39.868999 L 55.341999 32.880001 C 55.799 32.424999 55.799 31.685001 55.341 31.229 Z"/> </g> </svg>',
+		onClick: () => adjustMap("tilt", 5)
+	});
+}
+
+// Function to create the tilt-back control...
+function createRotateBackControl(map) {
+	return createMapControlButton({
+		id: "mapRotateBackButton",
+		title: "Rotate Map Down",
+		size: "30px",
+		innerHTML: '<svg viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"> <g id="Group-copy"> <path id="Path" fill="#000000" stroke="#000000" stroke-width="2" d="M 17.068624 40.361004 C 17.524626 40.816006 18.265623 40.816006 18.719625 40.361004 L 22.898623 36.182003 C 22.942625 45.550003 24.545628 54.364006 27.445625 61.037003 C 30.519627 68.106003 34.722626 72.000008 39.284626 72.000008 C 48.483627 72.000008 55.684624 56.095005 55.684624 35.795002 C 55.684624 15.493004 48.480625 -0.410004 39.284626 -0.410004 C 38.640625 -0.410004 38.117626 0.113998 38.117626 0.758003 C 38.117626 1.401001 38.640625 1.926003 39.284626 1.926003 C 46.909626 1.926003 53.348625 17.437004 53.348625 35.795002 C 53.348625 54.152004 46.907627 69.664001 39.284626 69.664001 C 35.758625 69.664001 32.228626 66.179001 29.586624 60.104004 C 26.810627 53.724007 25.273624 45.250004 25.233627 36.201004 L 29.389626 40.361004 C 29.843624 40.816006 30.584625 40.816006 31.040627 40.361004 C 31.494625 39.905003 31.494625 39.165005 31.040627 38.710003 L 24.056625 31.721004 L 17.067625 38.710003 C 16.610624 39.165005 16.610624 39.905003 17.068624 40.361004 Z"/> </g> </svg>',
+		onClick: () => adjustMap("tilt", -5)
+	});
+}
+
+// Function to create the map update status area...
+function createUpdateArea(map) {
+	const updateAreaDiv = document.createElement("div");
+	updateAreaDiv.id = "refreshStatusArea";
+	updateAreaDiv.style.display = "flex";
+	updateAreaDiv.style.alignItems = "center";
+	updateAreaDiv.style.width = "fit-content";
+	updateAreaDiv.style.padding = "0 10px";
+	updateAreaDiv.style.margin = "10px 0 0 0";
+	updateAreaDiv.style.height = "40px";
+	updateAreaDiv.style.backgroundColor = "rgb(255 255 255)";
+	// updateAreaDiv.style.backgroundColor = "rgba(0, 0, 0,0.7)";
+	// updateAreaDiv.style.border = "1px solid lightcoral";
+	updateAreaDiv.style.border = "0";
+	updateAreaDiv.style.boxShadow = "0 1px 4px rgba(0,0,0,0.3)";
+	updateAreaDiv.innerHTML = "Updating...";
+	// Attach to the map...
+	map.controls[google.maps.ControlPosition.TOP_LEFT].push(updateAreaDiv);
+
+	return updateAreaDiv;
+}
+
+// Function to adjust the map tilt or heading...
+function adjustMap(mode, amount) {
+	switch (mode) {
+		case "tilt":
+			map.setTilt(map.getTilt() + amount);
+			mapTilt = map.getTilt();
+			break;
+		case "rotate":
+			map.setHeading(map.getHeading() + amount);
+			mapHeading = map.getHeading();
+			break;
+		default:
+			break;
+	}
+}
+
+// Function to build LM API query params for a given property source and pagination offset...
+function buildLocationQuery(offset, propSource, { fieldList, pathOperator, statusFilter, deviceFilter }) {
+	const isGroupMode = mapSourceType === "groups";
+
+	// Default: fullPath filter with field limiting (used for group queries, or non-group edge cases)
+	let filterValue = `${propSource}.name:"${mapLocationProperty}",fullPath${pathOperator}"${groupPathFilter}"${statusFilter}${deviceFilter}`;
+
+	if (!isGroupMode) {
+		if (groupPathFilter !== "*") {
+			const tmpPathFilter = groupPathFilter.replace(/^\*/, "").replace(/\*$/, "");
+			if (tmpPathFilter !== "") {
+				filterValue = `${propSource}.name:"${mapLocationProperty}",systemProperties~"{\\"name\\":\\"system.groups\\",\\"value\\":\\"*${tmpPathFilter}*\\"}"${statusFilter}${deviceFilter}`;
+			}
+		} else {
+			filterValue = `${propSource}.name:"${mapLocationProperty}"${statusFilter}${deviceFilter}`;
+		}
+		return `?v=3&size=1000&offset=${offset}&filter=${encodeURIComponent(filterValue)}`;
+	}
+
+	return `?v=3&size=1000&offset=${offset}&fields=${fieldList}&filter=${encodeURIComponent(filterValue)}`;
+}
+
+// Function to fetch paginated LogicMonitor API results...
+async function fetchPaginatedLMItems({ resourcePath, buildQueryParams, signal, label }) {
+	const items = [];
+	let offset = 0;
+	let total = 1000;
+
+	while (offset < total) {
+		const data = await LMClient({
+			resourcePath,
+			queryParams: buildQueryParams(offset),
+			httpVerb: "GET",
+			signal,
+		});
+
+		if (data.total === 0) {
+			if (offset === 0) return { items: [], total: 0 };
+			break;
+		}
+
+		if (data.total !== total) total = data.total;
+		// A page that reports more records remaining but returns none would leave offset where it
+		// was, and the loop would reissue the same request forever against the LM API...
+		const page = Array.isArray(data.items) ? data.items : [];
+		if (!page.length) {
+			console.warn(`Map ${widgetID}: ${label} stopped at ${offset} of ${total} after an empty page.`);
+			break;
+		}
+		items.push(...page);
+		offset = items.length;
+
+		_dom.refreshStatusArea.innerHTML = `${loadingSpinner}&nbsp;${label}: ${offset} of ${total} (${Math.round(offset / total * 100)}%)`;
+	}
+
+	return { items, total };
+}
+
+// Function to load our LogicMonitor data and add pins to the map...
+async function refreshGroupData(timedRefresh = false) {
+	// Cancel any in-progress refresh operation
+	if (_currentRefreshController) {
+		if (!_currentRefreshController.signal.aborted) {
+			_currentRefreshController.abort();
+			console.debug('Previous refresh operation cancelled.');
+		}
+	}
+	_currentRefreshController = new AbortController();
+	const refreshSignal = _currentRefreshController.signal;
+	const thisRefreshGeneration = ++refreshGeneration;
+
+	// Capture current time for tracking how long the total refresh takes...
+	refreshStartTime = performance.now();
+
+	// Get the current value of the group path filter field...
+	const groupPathFilterFieldValue = _dom.customGroupFilterField.value;
+	if (groupPathFilterFieldValue != "" && groupPathFilterFieldValue != groupPathFilter) {
+		groupPathFilter = groupPathFilterFieldValue;
+
+		// The filter changed so clear any previous markers from the map...
+		clearAllMarkers();
+		clearAllPolylines();
+	} else if (groupPathFilterFieldValue == "") {
+		// The user cleared the field, so reset it back to the initial value...
+		groupPathFilter = initialGroupPathFilter;
+	}
+	_dom.customGroupFilterField.value = groupPathFilter;
+	updateResetGroupFilterButtonVisibility();
+
+	// Get current state of the severity checkboxes on the toolbar...
+	showCleared = _dom.showCleared.checked;
+	showWarnings = _dom.showWarnings.checked;
+	showErrors = _dom.showErrors.checked;
+	showCriticals = _dom.showCriticals.checked;
+	showSDT = _dom.showSDT.checked;
+	showConnections = _dom.showConnections.checked;
+	showOnlyConnected = _dom.showOnlyConnected.checked;
+	// If the user unchecked all the severities it'd essentially query all severities, so re-check all the checkboxes if that happens...
+	if (!showCleared && !showWarnings && !showErrors && !showCriticals && !showSDT) {
+		_dom.showCleared.checked = true;
+		_dom.showWarnings.checked = true;
+		_dom.showErrors.checked = true;
+		_dom.showCriticals.checked = true;
+		_dom.showSDT.checked = true;
+	}
+	// Get current state of the auto-zoom checkbox on the toolbar...
+	autoResetMapOnRefresh = _dom.autoZoom.checked;
+
+	// If there was a wildcard in the group path then do a "like" search, otherwise search for an exact match...
+	let pathOperator = ":";
+	if (groupPathFilter.includes("*")) {
+		pathOperator = "~";
+	}
+
+	// Temporarily disable the toolbar fields to prevent user from refreshing before previous refresh is complete...
+	_dom.mapOptionsArea.classList.add("disabled");
+	// Cache refresh button reference if not already cached
+	if (!_dom.weatherRefreshButton) {
+		_dom.weatherRefreshButton = getBetterMapElementById("weatherRefreshButton");
+	}
+	if (_dom.weatherRefreshButton) {
+		_dom.weatherRefreshButton.classList.add("disabled");
+	}
+
+	// Clear any previously fetched data...
+	groupData = [];
+	// For tracking how many groups to fetch & pagination...
+	let totalGroups = 1000;
+	let offset = 0;
+
+	// Cache refresh status area reference if not already cached
+	if (!_dom.refreshStatusArea) {
+		_dom.refreshStatusArea = getBetterMapElementById("refreshStatusArea");
+	}
+	// Display our progress to the user...
+	_dom.refreshStatusArea.innerHTML = loadingSpinner + "&nbsp;Updating";
+	_dom.refreshStatusArea.style.display = "flex";
+
+	// Prepare to call the LogicMonitor API method...
+	const httpVerb = "GET";
+
+	// List of fields to fetch...
+	let fieldList = "alertStatus,displayName,description,id,hostStatus,name,sdtStatus,numOfHosts,numOfAWSDevices,numOfAzureDevices,numOfGcpDevices,numOfKubernetesDevices,numOfDirectDevices,numOfSubGroups,customProperties,autoProperties";
+	// Only fetch custom & inherited properties on full refreshes...
+	if (Object.keys(cachedAddresses).length === 0 || pollCount > fullRefreshInterval) {
+		fullRefresh = true;
+		fieldList = fieldList + ",inheritedProperties,systemProperties";
+		pollCount = 0;
+	}
+
+	// Determine whether to fetch groups or resources...
+	let deviceFilter = "";
+	let resourcePath = "/device/groups";
+	if (mapSourceType != "groups") {
+		resourcePath = "/device/devices";
+		deviceFilter = ",deviceType:0|4|18|19";
+		if (mapSourceType == "services") {
+			deviceFilter = ",deviceType:6";
+		}
+	}
+
+	// Set our severity filters to query...
+	let statusFilter = "";
+	let statusArray = [];
+	// if (!showCleared && showWarnings && showErrors && showCriticals) {
+	if (showCleared) {
+		statusArray.push("none");
+	}
+	if (showWarnings) {
+		statusArray.push("*warn*");
+	}
+	if (showErrors) {
+		statusArray.push("*error*");
+	}
+	if (showCriticals) {
+		statusArray.push("*critical*");
+	}
+	if (statusArray.length > 0) {
+		statusFilter = ',alertStatus:' + '"' + statusArray.join("|") + '"';
+	}
+	if (!showSDT) {
+		statusFilter = statusFilter + ',sdtStatus:"none-none-*"';
+	}
+
+	// Reset our zoom level when the filter options change...
+	// (User-initiated refreshes always refit; the auto-zoom checkbox only governs timed refreshes.)
+	if (centerCalculated && !timedRefresh) {
+		centerCalculated = false;
+	}
+
+	// Shared context for query builders
+	const queryCtx = { fieldList, pathOperator, statusFilter, deviceFilter };
+
+	// Determine the primary property source for this configuration
+	const useAutoSysProp = mapSourceType !== "groups" && (mapLocationProperty.match(/^auto\./) || mapLocationProperty.match(/^system\./));
+	const primaryPropSource = useAutoSysProp
+		? (mapLocationProperty.match(/^auto\./) ? "autoProperties" : "systemProperties")
+		: "customProperties";
+
+	// Fetch primary location data (custom, auto, or system properties) with pagination...
+	try {
+		const primaryResult = await fetchPaginatedLMItems({
+			resourcePath,
+			buildQueryParams: (off) => buildLocationQuery(off, primaryPropSource, queryCtx),
+			signal: refreshSignal,
+			label: "Updating",
+		});
+
+		if (primaryResult.total === 0) {
+			console.debug('No results found');
+			if (!isBetterMapInstanceActive() || refreshSignal.aborted) return;
+			_dom.refreshStatusArea.innerHTML = "<span class='noResultMessage'>No results</span>";
+			_dom.mapOptionsArea.classList.remove("disabled");
+			if (_dom.weatherRefreshButton) _dom.weatherRefreshButton.classList.remove("disabled");
+			clearAllMarkers();
+			bounds = new google.maps.LatLngBounds();
+			resetZoom();
+			centerCalculated = false;
+			totalGroups = -1;
+		} else {
+			groupData = primaryResult.items;
+			totalGroups = primaryResult.total;
+			offset = groupData.length;
+		}
+	} catch (error) {
+		if (error.name === 'AbortError') {
+			console.debug('Refresh operation was cancelled.');
+			_currentRefreshController = null;
+			return;
+		}
+		console.error(`Map ${widgetID}: Error fetching group data:`, error);
+		_dom.refreshStatusArea.innerHTML = `<span class='noResultMessage'>Error loading data: ${error.message || 'Unknown error'}</span>`;
+		totalGroups = -1;
+		_dom.mapOptionsArea.classList.remove("disabled");
+		if (_dom.weatherRefreshButton) _dom.weatherRefreshButton.classList.remove("disabled");
+	}
+
+	// Fetch inherited location properties (only applicable for resources/services)...
+	if (mapSourceType !== "groups" && pollInheritedLocations && totalGroups >= 0) {
+		try {
+			const inheritedResult = await fetchPaginatedLMItems({
+				resourcePath,
+				buildQueryParams: (off) => buildLocationQuery(off, "inheritedProperties", queryCtx),
+				signal: refreshSignal,
+				label: "Inherited locations",
+			});
+
+			if (inheritedResult.total > 0) {
+				// Deduplicate: items from primary (custom/auto/system) properties take priority
+				const seenIDs = new Set(groupData.map(item => item.id));
+				let added = 0;
+				for (const item of inheritedResult.items) {
+					if (!seenIDs.has(item.id)) {
+						groupData.push(item);
+						seenIDs.add(item.id);
+						added++;
+					}
+				}
+				console.debug(`Inherited locations: ${inheritedResult.total} found, ${added} new (${inheritedResult.total - added} duplicates skipped)`);
+				totalGroups = groupData.length;
+				offset = totalGroups;
+			}
+		} catch (error) {
+			if (error.name === 'AbortError') {
+				console.debug('Refresh operation was cancelled.');
+				_currentRefreshController = null;
+				return;
+			}
+			console.error(`Map ${widgetID}: Error fetching inherited locations:`, error);
+			_dom.refreshStatusArea.innerHTML = `<span class='noResultMessage'>Error loading data: ${error.message || 'Unknown error'}</span>`;
+			_dom.mapOptionsArea.classList.remove("disabled");
+			if (_dom.weatherRefreshButton) _dom.weatherRefreshButton.classList.remove("disabled");
+		}
+	}
+
+	// If we've finished fetching all the group/resource data...
+	if (totalGroups > 0 && offset == totalGroups) {
+		if (!isBetterMapInstanceActive() || refreshSignal.aborted) return;
+		// console.debug('Total groups processed: ' + totalGroups);
+		// Re-enable the toolbar fields (but keep status area visible for geocoding progress)...
+		_dom.mapOptionsArea.classList.remove("disabled");
+		if (_dom.weatherRefreshButton) {
+			_dom.weatherRefreshButton.classList.remove("disabled");
+		}
+
+		// Prepare Google geocoding for translating a street address to latitude & longitude...
+		const geocoder = new google.maps.Geocoder();
+		const parser = new DOMParser();
+
+		let itemsProcessed = 0;
+		// Track geocoding progress for status display...
+		let geocodesToDo = 0;
+		let geocodesDone = 0;
+
+		// Function to update the status area with geocoding progress...
+		function updateGeocodingStatus() {
+			if (geocodesToDo > 0 && geocodesDone < geocodesToDo) {
+				_dom.refreshStatusArea.innerHTML = loadingSpinner + "&nbsp;Geocoding " + (geocodesDone + 1) + " of " + geocodesToDo;
+				_dom.refreshStatusArea.style.display = "flex";
+			}
+		}
+
+		// Function to mark a geocode as complete and update status...
+		function geocodeComplete() {
+			geocodesDone++;
+			if (geocodesDone < geocodesToDo) {
+				updateGeocodingStatus();
+			}
+		}
+		// onRefreshComplete tears down and rebuilds clustering and refits the map, so it has to run
+		// exactly once per pass. The count below is compared with >= rather than == because the
+		// geocoder failure path lowers totalGroups from async callbacks, so an exact match can be
+		// stepped over and leave the spinner up and the toolbar disabled for good. Since >= then
+		// stays true for every later increment, this flag is what holds it to a single run.
+		let refreshCompleteFired = false;
+
+		// Function to finish the refresh once every item has been accounted for...
+		async function finishRefreshIfComplete() {
+			if (refreshCompleteFired || itemsProcessed < totalGroups) return;
+			refreshCompleteFired = true;
+			await onRefreshComplete();
+		}
+
+		// Function to wrap per-item work so that an item which throws still gets accounted for...
+		// A failing item never reaches its own itemsProcessed increment, so the expected total could
+		// never be met and the refresh would sit unfinished. buildMarkersInBatches catches per-item
+		// errors too, but it is a shared window-level helper whose first definition on the page wins,
+		// so a widget save cannot rely on its copy being the current one. Keeping the accounting here
+		// in the refresh scope makes it work either way.
+		function withItemErrorAccounting(handler) {
+			return function(thisItem) {
+				try {
+					return handler(thisItem);
+				} catch (error) {
+					console.warn(`Map ${widgetID}: skipping an item that failed to plot.`, (thisItem && (thisItem.name || thisItem.id)) || thisItem, error);
+					totalGroups = totalGroups - 1;
+					finishRefreshIfComplete();
+				}
+			};
+		}
+
+		// Determine if we can do a differential (in-place) update
+		const isDiffUpdate = timedRefresh && markersByDeviceID.size > 0;
+		let markersAddedOrRemoved = false;
+
+		if (isDiffUpdate) {
+			// Remove stale markers (items no longer in groupData)
+			const newItemIDs = new Set(groupData.map(item => item.id));
+			const staleMarkers = [];
+			for (const [id, marker] of markersByDeviceID) {
+				if (!newItemIDs.has(id)) {
+					marker.setMap(null);
+					staleMarkers.push(marker);
+					markersByDeviceID.delete(id);
+				}
+			}
+			if (staleMarkers.length > 0) {
+				markers = markers.filter(m => !staleMarkers.includes(m));
+				markersAddedOrRemoved = true;
+			}
+		} else {
+			clearAllMarkers();
+		}
+
+		// For use in zooming the map to encompass all our markers on initial draw...
+		bounds = new google.maps.LatLngBounds();
+		const connectionData = buildConnectionDataFromItems(groupData);
+		lineData = connectionData.lineData;
+		const connectedDeviceIDs = connectionData.connectedDeviceIDs;
+
+		// Function called when all items have been processed...
+		async function onRefreshComplete() {
+			if (!isBetterMapInstanceActive() || refreshSignal.aborted || !map) return;
+			if (!centerCalculated || (timedRefresh && autoResetMapOnRefresh)) {
+				resetZoom();
+				centerCalculated = true;
+			}
+
+			if (!disableClustering) {
+				if (isDiffUpdate && !markersAddedOrRemoved && typeof clusterer == "object") {
+					// Severity-only changes: re-render clusters to update donut charts
+					clusterer.render();
+				} else {
+					if (typeof clusterer == "object") {
+						google.maps.event.clearInstanceListeners(clusterer);
+						clusterer.setMap(null);
+					}
+					const algorithm = new markerClusterer.SuperClusterAlgorithm({radius: 120});
+					clusterer = new markerClusterer.MarkerClusterer({
+						markers,
+						map,
+						renderer,
+						algorithm,
+						onClusterClick: null
+					});
+					clusterer.addListener("clusteringend", () => {
+						schedulePolylineEndpointUpdate();
+					});
+				}
+			}
+
+			clearAllPolylines();
+			if (mapSourceType == "resources" && showConnections) {
+				assignParallelConnectionOffsets();
+				const connectionPromises = Object.values(lineData)
+					.filter(c => isConnectionInCurrentFilter(c))
+					.map(c => plotConnection(c, thisRefreshGeneration));
+				const connectionResults = await Promise.allSettled(connectionPromises);
+				const failedConnections = connectionResults.filter(result => result.status === "rejected");
+				if (failedConnections.length > 0) {
+					console.warn(`Map ${widgetID}: Failed to draw ${failedConnections.length} connection line(s).`, failedConnections);
+				}
+				schedulePolylineEndpointUpdate();
+			}
+
+			populateSidebar();
+
+			let refreshEndTime = performance.now();
+			console.debug(`Total map refresh time: ${refreshEndTime - refreshStartTime} milliseconds`);
+			pollCount = pollCount + 1;
+			if (fullRefresh) {
+				fullRefresh = false;
+			}
+
+			map.setTilt(mapTilt);
+			map.setHeading(mapHeading);
+
+			// Hide the status area now that all items are processed...
+			_dom.refreshStatusArea.innerHTML = "";
+			_dom.refreshStatusArea.style.display = "none";
+
+			_currentRefreshController = null;
+		}
+
+		// Process groups in batches to avoid UI jank with large datasets...
+		await buildMarkersInBatches(groupData, withItemErrorAccounting((thisItem) => {
+			let groupID = thisItem.id;
+			const { severity: highestSeverity, sevIcon, pinBG, pinBorder, pinIndex } = parseSeverity(thisItem);
+
+			if (!passesConnectionFilter(thisItem.id, connectedDeviceIDs)) {
+				if (isDiffUpdate) {
+					const existingMarker = markersByDeviceID.get(thisItem.id);
+					if (existingMarker) {
+						existingMarker.setMap(null);
+						markers = markers.filter(m => m !== existingMarker);
+						markersByDeviceID.delete(thisItem.id);
+						markersAddedOrRemoved = true;
+					}
+				}
+				itemsProcessed++;
+				finishRefreshIfComplete();
+				return;
+			}
+
+			// Differential update: update existing markers in-place instead of rebuilding
+			if (isDiffUpdate) {
+				const existingMarker = markersByDeviceID.get(thisItem.id);
+				if (existingMarker) {
+					bounds.extend(existingMarker.position);
+
+					// Update severity if changed
+					if (String(pinIndex) !== (existingMarker.content && existingMarker.content.dataset && existingMarker.content.dataset.severity)) {
+						existingMarker.content.dataset.severity = String(pinIndex);
+						existingMarker.zIndex = pinIndex;
+						const iconDiv = existingMarker.content.querySelector('.icon');
+						if (iconDiv) {
+							iconDiv.className = `icon ${highestSeverity}`;
+							iconDiv.innerHTML = sevIcon;
+						}
+					}
+
+					itemsProcessed++;
+					finishRefreshIfComplete();
+					return;
+				}
+				// Item not found in existing markers - fall through to create a new one
+				markersAddedOrRemoved = true;
+			}
+
+			let address = "";
+			let latProp = null;
+			let lngProp = null;
+			let alreadyGeocoded = false;
+			
+			if (fullRefresh) {
+				const locationResult = findLocationFromItem(thisItem, mapLocationProperty);
+				address = locationResult.address;
+				alreadyGeocoded = locationResult.alreadyGeocoded;
+				latProp = locationResult.latProp;
+				lngProp = locationResult.lngProp;
+			}
+
+			// Remove any extraneous characters from the address...
+			address = address.trim().replaceAll("\t", "").replaceAll("\n", ", ");
+
+			resolveAddress(thisItem, address);
+
+			// Function to resolve locations to latitude/longitude...
+			async function resolveAddress(thisItem, address) {
+				// console.debug('Resolving address for ' + thisItem.name + ': ' + address);
+				// Check to see if we've already geocoded this group's address and that the address hasn't changed...
+				if (cachedAddresses[thisItem.id] && cachedAddresses[thisItem.id].address == address) {
+					// console.debug('Address already geocoded for ' + thisItem.name + ': ' + address);
+					// Call the subfunction to add the group to the map...
+					plotMarker(thisItem, cachedAddresses[thisItem.id].lat, cachedAddresses[thisItem.id].lng, cachedAddresses[thisItem.id].address);
+				} else {
+					if (alreadyGeocoded) {
+						// console.debug('Address already geocoded as custom properties for ' + thisItem.name + ': ' + address);
+						// Cache the address for reuse...
+						cachedAddresses[thisItem.id] = {lat: Number(latProp.value), lng: Number(lngProp.value), address: address};
+						debouncedSaveCache();
+						// Call the subfunction to add the group to the map...
+						plotMarker(thisItem, cachedAddresses[thisItem.id].lat, cachedAddresses[thisItem.id].lng, cachedAddresses[thisItem.id].address);
+					} else {
+						// See if the location is a latitude/longitude...
+						const coodinateRE = /^([\-]*[\d]+[\.\d]+)[ ,]+([\-]*[\d]+[\.\d]+)$/;
+						let match = coodinateRE.exec(address);
+						let latVal = null;
+						let lngVal = null;
+						if (match && match.length == 3) {
+							try {
+								latVal = Number(match[1]);
+								lngVal = Number(match[2]);
+							} catch(e) {};
+							// It appears we have a latitude & longitude. Cache them for reuse...
+							latVal = Number(match[1]);
+							lngVal = Number(match[2]);
+						}
+						// Ensure the latitude and longitude are valid...
+						if (latVal && lngVal && latVal > -90 && latVal < 90 && lngVal > -180 && lngVal < 180 && latVal != 0 && lngVal != 0) {
+							// console.debug('Latitude & longitude found for ' + thisItem.name + ': ' + match[1] + ', ' + match[2]);
+							cachedAddresses[thisItem.id] = {lat: Number(match[1]), lng: Number(match[2]), address: address};
+							debouncedSaveCache();
+							// Call the subfunction to add the group to the map...
+							plotMarker(thisItem, cachedAddresses[thisItem.id].lat, cachedAddresses[thisItem.id].lng, address);
+						} else {
+							// Attempt to geocode the address...
+							geocodesToDo++;
+							updateGeocodingStatus();
+							enqueueGeocode(geocoder, {'address': address}, function(results, status) {
+								geocodeComplete();
+								if (status == 'OK') {
+									// Grab the longitude/latitude from the results...
+									let geocodedLocation = results[0].geometry.location;
+
+									// Cache these coordinates for reuse later...
+									cachedAddresses[thisItem.id] = {lat: Number(geocodedLocation.lat()), lng: Number(geocodedLocation.lng()), address: address};
+									debouncedSaveCache();
+									// Call the subfunction to add the group to the map...
+									plotMarker(thisItem, cachedAddresses[thisItem.id].lat, cachedAddresses[thisItem.id].lng, address);
+								} else {
+									// We weren't provided a resolvable address, so deduct this item from our overall count...
+									totalGroups = totalGroups - 1;
+									// We still call the `plotMarker` even though there's no marker to plot in case this was the last one to process...
+									plotMarker(thisItem, null, null, null);
+								}
+							});
+						}
+					}
+				}
+			}
+
+			// Function to add markers to the map...
+			async function plotMarker(thisItem, lat, lng, address) {
+				if (address != null) {
+					// Start creating content for the group's map pin...
+					const content = document.createElement("div");
+					let customContent = "";
+
+					if (displayProps != "") {
+						const propList = displayProps.split(",");
+						propList.forEach(thisProp => {
+							const found = findItemProperty(thisItem, thisProp.trim());
+							if (found) {
+								customContent = `${customContent}<div class="customItem"><span class="customItemName">${escapeHtml(found.name)}</span>: ${escapeHtml(found.value)}</div>`;
+							}
+						});
+						if (customContent != "") {
+							customContent = `<div class="customItemArea">${customContent}</div>`;
+						}
+					}
+
+
+					content.classList.add("group");
+					if (markerStyle === "circles") content.classList.add("dot-style");
+					// The pin's z-index gets overwritten when clicked to show details, so capture the original severity in the pin's metadata...
+					content.dataset.severity = pinIndex;
+					// Create the content shown when the pin is clicked...
+					const itemId = encodeURIComponent(thisItem.id);
+					if (mapSourceType == "groups") {
+						// Capture the group's description...
+						let groupDescription = thisItem.description;
+						// If the group doesn't have a description then fallback to showing the address...
+						if (groupDescription == "") {
+							groupDescription = address;
+						}
+						groupDescription = escapeHtml(groupDescription);
+
+						content.innerHTML = `
+							<div class="icon ${highestSeverity}">
+								${sevIcon}
+							</div>
+							<div class="details">
+								<div class="groupName"><a href="/santaba/uiv4/resources/treeNodes/t-dg,id-${itemId}?source=details" target="_blank">${escapeHtml(thisItem.name)}</a></div>
+								<div class="description">${groupDescription}${customContent}</div>
+								<div class="features">
+									<div title="${thisItem.numOfHosts} Standard Devices">
+										<svg xmlns="http://www.w3.org/2000/svg" class="infoDialogIcon" viewBox="0 0 640 640"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path d="M160 96C124.7 96 96 124.7 96 160L96 224C96 259.3 124.7 288 160 288L480 288C515.3 288 544 259.3 544 224L544 160C544 124.7 515.3 96 480 96L160 96zM376 168C389.3 168 400 178.7 400 192C400 205.3 389.3 216 376 216C362.7 216 352 205.3 352 192C352 178.7 362.7 168 376 168zM432 192C432 178.7 442.7 168 456 168C469.3 168 480 178.7 480 192C480 205.3 469.3 216 456 216C442.7 216 432 205.3 432 192zM160 352C124.7 352 96 380.7 96 416L96 480C96 515.3 124.7 544 160 544L480 544C515.3 544 544 515.3 544 480L544 416C544 380.7 515.3 352 480 352L160 352zM376 424C389.3 424 400 434.7 400 448C400 461.3 389.3 472 376 472C362.7 472 352 461.3 352 448C352 434.7 362.7 424 376 424zM432 448C432 434.7 442.7 424 456 424C469.3 424 480 434.7 480 448C480 461.3 469.3 472 456 472C442.7 472 432 461.3 432 448z"/></svg>
+
+										<span>${thisItem.numOfHosts}</span>
+									</div>
+									<div title="${thisItem.numOfAWSDevices + thisItem.numOfAzureDevices + thisItem.numOfGcpDevices} Cloud Devices">
+										<svg xmlns="http://www.w3.org/2000/svg" class="infoDialogIcon" viewBox="0 0 640 640"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path d="M32 400C32 479.5 96.5 544 176 544L480 544C550.7 544 608 486.7 608 416C608 364.4 577.5 319.9 533.5 299.7C540.2 286.6 544 271.7 544 256C544 203 501 160 448 160C430.3 160 413.8 164.8 399.6 173.1C375.5 127.3 327.4 96 272 96C192.5 96 128 160.5 128 240C128 248 128.7 255.9 129.9 263.5C73 282.7 32 336.6 32 400z"/></svg>
+										<span>${thisItem.numOfAWSDevices + thisItem.numOfAzureDevices + thisItem.numOfGcpDevices}</span>
+									</div>
+									<div title="${thisItem.numOfKubernetesDevices} Kubernetes Devices">
+										<svg xmlns="http://www.w3.org/2000/svg" class="infoDialogIcon" viewBox="0 0 640 640"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path d="M401.8 269.7L450.4 227.2C464.2 246.5 473.8 269.1 477.8 293.4L413.4 297.7C411 287.6 407 278.2 401.8 269.7zM541.9 289.2C536.6 250.4 521.3 214.7 498.7 184.9L499.5 184.2C513 172.4 513.7 151.6 501 139C488.3 126.4 467.6 127 455.8 140.5L455.1 141.3C425.3 118.7 389.6 103.4 350.8 98.1L350.9 97C352.1 79.1 337.9 64 320 64C302.1 64 287.9 79.2 289.1 97L289.2 98.1C250.4 103.4 214.7 118.7 184.9 141.3L184.2 140.5C172.4 127 151.6 126.3 139 139C126.4 151.7 127 172.4 140.5 184.2L141.3 184.9C118.7 214.7 103.4 250.4 98.1 289.2L97 289.1C79.1 287.9 64 302.1 64 320C64 337.9 79.2 352.1 97 350.9L98.1 350.8C103.4 389.6 118.7 425.3 141.3 455.1L140.5 455.8C127 467.6 126.3 488.4 139 501C151.7 513.6 172.4 513 184.2 499.5L184.9 498.7C214.7 521.3 250.4 536.6 289.2 541.9L289.1 543C287.9 560.9 302.1 576 320 576C337.9 576 352.1 560.8 350.9 543L350.8 541.9C389.6 536.6 425.3 521.3 455.1 498.7L455.8 499.5C467.6 513 488.3 513.7 501 501C513.7 488.3 513 467.6 499.5 455.8L498.7 455.1C521.3 425.3 536.6 389.6 541.9 350.8L543 350.9C560.9 352.1 576 337.9 576 320C576 302.1 560.8 287.9 543 289.1L541.9 289.2zM227.2 189.6C246.5 175.8 269.1 166.2 293.4 162.1L297.7 226.5C287.7 228.9 278.2 232.9 269.7 238.1L227.2 189.5zM162.2 293.4C166.3 269 175.9 246.5 189.7 227.2L238.3 269.7C233 278.2 229.1 287.7 226.7 297.7L162.3 293.4zM189.7 412.8C175.9 393.5 166.3 370.9 162.2 346.6L226.6 342.3C229 352.4 233 361.8 238.2 370.3L189.6 412.8zM293.5 477.8C269.1 473.7 246.6 464.1 227.3 450.4L269.8 401.8C278.3 407.1 287.8 411 297.8 413.4L293.5 477.8zM412.9 450.4C393.6 464.2 371 473.8 346.7 477.8L342.4 413.4C352.4 411 361.9 407 370.4 401.8L412.9 450.4zM477.9 346.6C473.8 371 464.2 393.5 450.5 412.8L401.9 370.3C407.2 361.7 411.1 352.3 413.5 342.3L477.9 346.6zM412.9 189.7L370.4 238.3C361.8 233 352.4 229.1 342.4 226.7L346.7 162.3C371.1 166.4 393.6 176 412.9 189.8zM320 288C337.7 288 352 302.3 352 320C352 337.7 337.7 352 320 352C302.3 352 288 337.7 288 320C288 302.3 302.3 288 320 288z"/></svg>
+										<span>${thisItem.numOfKubernetesDevices}</span>
+									</div>
+									<div class="drillDownButton" title="Open group in new tab">
+										<a href="/santaba/uiv4/resources/treeNodes/t-dg,id-${itemId}?source=details" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" class="infoDialogIcon" viewBox="0 0 640 640"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path fill="white" d="M384 64C366.3 64 352 78.3 352 96C352 113.7 366.3 128 384 128L466.7 128L265.3 329.4C252.8 341.9 252.8 362.2 265.3 374.7C277.8 387.2 298.1 387.2 310.6 374.7L512 173.3L512 256C512 273.7 526.3 288 544 288C561.7 288 576 273.7 576 256L576 96C576 78.3 561.7 64 544 64L384 64zM144 160C99.8 160 64 195.8 64 240L64 496C64 540.2 99.8 576 144 576L400 576C444.2 576 480 540.2 480 496L480 416C480 398.3 465.7 384 448 384C430.3 384 416 398.3 416 416L416 496C416 504.8 408.8 512 400 512L144 512C135.2 512 128 504.8 128 496L128 240C128 231.2 135.2 224 144 224L224 224C241.7 224 256 209.7 256 192C256 174.3 241.7 160 224 160L144 160z"/></svg></a>
+									</div>
+								</div>
+							</div>
+						`;
+					} else {
+						// Capture the group's description...
+						let groupDescription = escapeHtml(thisItem.description);
+						// If the group doesn't have a description then fallback to showing the address...
+						if (groupDescription == "") {
+							groupDescription = "Host:" + escapeHtml(thisItem.name) + "<br/>Address: " + escapeHtml(cachedAddresses[groupID].address);
+						}
+
+						content.innerHTML = `
+							<div class="icon ${highestSeverity}">
+								${sevIcon}
+							</div>
+							<div class="details">
+								<div class="groupName"><a href="/santaba/uiv4/resources/treeNodes/t-d,id-${itemId}?source=details&tab=alert" target="_blank">${escapeHtml(thisItem.displayName)}</a></div>
+								<div class="description">${groupDescription}${customContent}</div>
+								<div class="features">
+									<div class="drillDownButton" title="Open group in new tab">
+										<a href="/santaba/uiv4/resources/treeNodes/t-d,id-${itemId}?source=details&tab=alert" target="_blank" class="link"><svg xmlns="http://www.w3.org/2000/svg" class="infoDialogIcon" viewBox="0 0 640 640"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path fill="white" d="M384 64C366.3 64 352 78.3 352 96C352 113.7 366.3 128 384 128L466.7 128L265.3 329.4C252.8 341.9 252.8 362.2 265.3 374.7C277.8 387.2 298.1 387.2 310.6 374.7L512 173.3L512 256C512 273.7 526.3 288 544 288C561.7 288 576 273.7 576 256L576 96C576 78.3 561.7 64 544 64L384 64zM144 160C99.8 160 64 195.8 64 240L64 496C64 540.2 99.8 576 144 576L400 576C444.2 576 480 540.2 480 496L480 416C480 398.3 465.7 384 448 384C430.3 384 416 398.3 416 416L416 496C416 504.8 408.8 512 400 512L144 512C135.2 512 128 504.8 128 496L128 240C128 231.2 135.2 224 144 224L224 224C241.7 224 256 209.7 256 192C256 174.3 241.7 160 224 160L144 160z"/></svg></a>
+									</div>
+								</div>
+							</div>
+						`;
+					}
+
+					// Add this group's pin to the map...
+					let marker = new google.maps.marker.AdvancedMarkerElement({
+						position: { lat: cachedAddresses[groupID].lat, lng: cachedAddresses[groupID].lng },
+						map: map,
+						content: content,
+						// content: glyphSvgPinElement.element,
+						title: thisItem.name,
+						zIndex: pinIndex,
+					});
+					// Store deviceID on marker for info-window tracking...
+					marker.deviceID = thisItem.id;
+
+					// Open info window when marker is clicked...
+					marker.addListener("gmp-click", () => {
+						toggleHighlight(marker, thisItem)
+					});
+
+					// Add reference to this pin for use by the clustering algorithm or if we need to modify them later...
+					markers.push(marker);
+					// Also add to Map for O(1) lookups by device ID
+					markersByDeviceID.set(thisItem.id, marker);
+
+					// Add this marker to map's bounding box (for initial zooming)...
+					bounds.extend(marker.position);
+
+					itemsProcessed = itemsProcessed + 1;
+				}
+				// console.log("itemsProcessed: " + itemsProcessed + " / totalGroups: " + totalGroups);
+
+				await finishRefreshIfComplete();
+			}
+		}));
+	}
+}
+
+// Function to fetch connection status & plot connecting lines on the map...
+async function plotConnection(connection, requestedRefreshGeneration = refreshGeneration) {
+	if (requestedRefreshGeneration !== refreshGeneration || !isConnectionInCurrentFilter(connection)) {
+		console.debug("Skipping map connection outside the current filter", connection);
+		return false;
+	}
+
+	// Fetch the current alert status of the defined instance...
+	let resourcePath = `/device/devices/${connection.deviceIDSource}/devicedatasources/${connection.datasourceID}/instances/${connection.instanceID}`;
+	let httpVerb = "GET";
+	let instanceData = null;
+	let alertStatus = "OK";
+	let alertSeverity = "clear";
+	let sdtStatus = "";
+	let connectionColor = "#85c25d";
+
+	try {
+		instanceData = await LMClient({
+			resourcePath: resourcePath,
+			queryParams: "",
+			httpVerb: httpVerb,
+			postBody: null,
+			apiVersion: '3',
+		});
+		// console.debug('Instance status succeeded with JSON response', instanceData);
+	} catch (error) {
+		alertStatus = "Unknown";
+		connectionColor = "#999999";
+		console.warn(`Map ${widgetID}: Unable to fetch connection status; drawing line with unknown status.`, {
+			connection,
+			error,
+		});
+	}
+
+	if (requestedRefreshGeneration !== refreshGeneration || !isConnectionInCurrentFilter(connection)) {
+		console.debug("Skipping stale map connection after status lookup", connection);
+		return false;
+	}
+
+	// Establish coordinates of the line start and end from the currently visible marker/cluster set.
+	const sourcePos = getMarkerOrClusterPosition(connection.deviceIDSource);
+	const targetPos = getMarkerOrClusterPosition(connection.deviceIDConnected);
+	if (!sourcePos || !targetPos) {
+		console.debug("Skipping map connection with endpoint outside the current marker set", connection);
+		return false;
+	}
+	const tmpCoords = buildConnectionPath(sourcePos, targetPos, connection);
+
+	// Process the data we received...
+	if (instanceData) {
+		// Parse the alarm status...
+		let alertStatusArray = String(instanceData.alertStatus || "").match(/([\w]+)-([\w]+)-([\w]+)/);
+		if (alertStatusArray) {
+			alertStatus = alertStatusArray[1];
+			alertSeverity = alertStatusArray[2];
+		}
+
+		// Determine color by severity...
+		if (alertSeverity != "") {
+			if (alertSeverity == "warn") {
+				connectionColor = "#f5ca1d";
+				alertStatus = "Warning";
+			} else if (alertSeverity == "error") {
+				connectionColor = "#ff8c00";
+				alertStatus = "Error";
+			} else if (alertSeverity == "critical") {
+				connectionColor = "#e0351b";
+				alertStatus = "Critical";
+			}
+		}
+
+		// Parse the SDT status...
+		let sdtStatusArray = String(instanceData.sdtStatus || "").match(/([\w]+)-([\w]+)-([\w]+)/);
+		if (sdtStatusArray && (sdtStatusArray[1].toLowerCase() == "sdt" || sdtStatusArray[2].toLowerCase() == "sdt")) {
+			sdtStatus = "sdt";
+		}
+		// If in SDT...
+		if (sdtStatus == "sdt") {
+			connectionColor = "#00a1fe";
+		}
+	}
+
+	// Plot the line on the map...
+	const thisPath = new google.maps.Polyline({
+		path: tmpCoords,
+		geodesic: useGeodesicLines,
+		strokeColor: connectionColor,
+		strokeOpacity: 1.0,
+		strokeWeight: connectingLineWeight,
+	});
+	thisPath.setMap(map);
+
+	// Track polyline with source/target IDs so we can redraw to clusters
+	polylines.push({
+		polyline: thisPath,
+		sourceDeviceID: connection.deviceIDSource,
+		targetDeviceID: connection.deviceIDConnected,
+		connection: connection,
+		originalCoords: [sourcePos, targetPos],
+	});
+
+	// Show connection info on hover...
+	let lineInfoWindow = new CustomInfoWindow({
+		content: "",
+		anchor: 'top',
+		offset: 15,
+		clickThrough: true
+	});
+
+	google.maps.event.addListener(thisPath, "mouseover", function(e) {
+		lineInfoWindow.setPosition(e.latLng);
+		lineInfoWindow.setContent(`<strong>${escapeHtml(connection.connectionName)}</strong><br/>Connection alert status: <a href="/santaba/uiv4/resources/treeNodes/t-i,id-${encodeURIComponent(connection.instanceID)}?source=details&tab=alert" target="_blank" title="Click to view alerts" style="border: 0;">${escapeHtml(alertStatus)}</a>`);
+		lineInfoWindow.open(map);
+	});
+	google.maps.event.addListener(thisPath, "mouseout", function(e) {
+		lineInfoWindow.close();
+	});
+	google.maps.event.addListener(thisPath, "click", function(e) {
+		window.open("/santaba/uiv4/resources/treeNodes/t-i,id-" + connection.instanceID + "?source=details&tab=alert");
+	});
+	return true;
+}
+
+// Function for showing/hiding a group's detail when clicked...
+function toggleHighlight(markerView, group) {
+	closeAllInfoWindows({ skipMarker: true });
+
+	// If clicking the same marker that's already open, close it. The isOpen test matters because
+	// dismissing the window with its own X button leaves this reference in place, and without it
+	// the next click on that same marker was treated as a second toggle-off and opened nothing...
+	if (markerInfoWindow && markerInfoWindow.markerId === markerView.deviceID && markerInfoWindow.isOpen) {
+		markerInfoWindow.close();
+		markerInfoWindow = null;
+		return;
+	}
+
+	// Close any existing marker InfoWindow
+	if (markerInfoWindow) {
+		markerInfoWindow.close();
+	}
+
+	// Clone the marker content to use in the InfoWindow (preserves classes for CSS styling)
+	const contentClone = markerView.content.cloneNode(true);
+	// Add highlight class to apply the expanded styling
+	contentClone.classList.add('highlight');
+	// Make sure the details are visible
+	const detailsEl = contentClone.querySelector('.details');
+	if (detailsEl) {
+		detailsEl.style.display = 'flex';
+	}
+
+	// Create and open the CustomInfoWindow
+	markerInfoWindow = new CustomInfoWindow({
+		position: markerView.position,
+		content: contentClone.outerHTML,
+		anchor: 'top',
+		offset: markerStyle === "circles" ? 12 : 40
+	});
+	markerInfoWindow.markerId = markerView.deviceID; // Track which marker this is for
+	markerInfoWindow.open(map);
+}
+
+if (typeof sidebarDefaultWidth === 'undefined') { sidebarDefaultWidth = 300; }
+var sidebarSortMode = "severity";
+var sidebarItems = [];
+// Set when a refresh completed while the sidebar was collapsed, so opening it repopulates...
+var _sidebarNeedsRebuild = true;
+
+// Function to escape text for safe interpolation into markup or a double-quoted attribute...
+function escapeHtml(str) {
+	if (str == null) return '';
+	return String(str)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+}
+
+// LogicMonitor's widget sanitizer breaks nested template literals and ternary HTML fragments.
+function buildSidebarPropsHtml(props) {
+	if (!props || !props.length) return "";
+	var inner = props.map(function(p) {
+		var name = escapeHtml(p.name);
+		var value = escapeHtml(p.value);
+		return '\x3cdiv class="sidebar-item-prop" title="' + name + ': ' + value + '"\x3e' +
+			'\x3cspan class="sidebar-item-prop-label"\x3e' + name + ':\x3c/span\x3e ' + value +
+			'\x3c/div\x3e';
+	}).join("");
+	return '\x3cdiv class="sidebar-item-props"\x3e' + inner + '\x3c/div\x3e';
+}
+
+function buildClusterDeviceRowHtml(device) {
+	// device.name is read back out of the marker DOM via textContent, so entities are already
+	// decoded by the time we get here and must be re-escaped before returning to markup.
+	var name = escapeHtml(device.name);
+	var link = escapeHtml(device.link);
+	return '\x3cdiv style="display: flex; align-items: center; padding: 4px 8px; background: color-mix(in srgb, var(--' + device.status + '-color) 10%, white 30%); border-radius: 4px; gap: 8px; max-height: 25px;"\x3e' +
+		'\x3cdiv style="width: 8px; height: 8px; border-radius: 50%; background: var(--' + device.status + '-color); flex-shrink: 0;"\x3e\x3c/div\x3e' +
+		'\x3ca href="' + link + '" target="_blank" style="color: #1a73e8; text-decoration: none; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'"\x3e' +
+			name + device.sdtStatus +
+		'\x3c/a\x3e' +
+		'\x3cdiv style="display: flex; align-items: center;"\x3e' +
+			'\x3ca href="' + link + '" target="_blank" style="color: #1a73e8; display: flex; align-items: center; padding: 2px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background=\'#e8f0fe\'" onmouseout="this.style.background=\'transparent\'"\x3e' +
+				'\x3csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"\x3e' +
+					'\x3cpath d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/\x3e' +
+					'\x3cpolyline points="15 3 21 3 21 9"/\x3e' +
+					'\x3cline x1="10" y1="14" x2="21" y2="3"/\x3e' +
+				'\x3c/svg\x3e' +
+			'\x3c/a\x3e' +
+		'\x3c/div\x3e' +
+	'\x3c/div\x3e';
+}
+
+function buildWildfireHighlightBlock(highlightValueHtml, highlightUnitHtml) {
+	if (!highlightValueHtml) return "";
+	var unitLine = highlightUnitHtml
+		? '\x3cdiv style="font-size:12px;color:#666;margin-top:2px;"\x3e' + highlightUnitHtml + '\x3c/div\x3e'
+		: "";
+	return '\x3cdiv style="text-align:center;margin:12px 0;padding:12px 8px;background:#fff5f5;border-radius:6px;"\x3e' +
+		'\x3cdiv style="font-size:22px;font-weight:700;color:#b91c1c;line-height:1.2;"\x3e' + highlightValueHtml + '\x3c/div\x3e' +
+		unitLine +
+	'\x3c/div\x3e';
+}
+
+function buildTsunamiWarningBannerHtml(tsunamiWarningHtml) {
+	var svg = '\x3csvg width="35px" height="35px" viewBox="0 0 60.601004 60.601004" xmlns="http://www.w3.org/2000/svg"\x3e' +
+		'\x3cpath d="m 57.316128,56.958628 c 1.125,0 2.225,-0.5825 2.825,-1.63125 0.6125,-1.04625 0.5625,-2.28875 0,-3.265 L 33.128628,5.2773777 c -0.5625,-0.97375 -1.6125,-1.635 -2.8375,-1.635 -1.2,0.0025 -2.25,0.66125 -2.8125,1.635 L 0.46612771,52.062378 c -0.575,0.97625 -0.6125,2.21875 -0.0125,3.265 0.61249999,1.04875 1.69999999,1.63125 2.83749999,1.63125 l 54.0250003,0" style="fill:#000000;fill-opacity:1;fill-rule:nonzero;stroke:none"/\x3e' +
+		'\x3cpath d="m 30.291127,9.0848757 -13.85,23.9900003 c 14.9125,-7.8575 22.4375,-2.24875 24.7875,3.58875 l -0.4625,0.26625 c -0.3625,-0.3475 -0.775,-0.65625 -1.2375,-0.935 -3.1125,-1.86375 -6.9375,-1.21 -8.55,1.46625 -1.6125,2.685 -0.3875,6.37375 2.725,8.24125 6.1375,3.68625 13.975,2.81 18.725,1.71125 L 30.291127,9.0848757" style="fill:white;fill-opacity:1;fill-rule:evenodd;stroke:none"/\x3e' +
+	'\x3c/svg\x3e';
+	return '\x3cdiv style="display: flex; flex-wrap: wrap; text-wrap: auto; align-items: center; gap: 8px; justify-content: center;"\x3e' +
+		svg +
+		'\x3cspan style="font-weight: bold;"\x3e' + tsunamiWarningHtml + '\x3c/span\x3e' +
+	'\x3c/div\x3e';
+}
+
+function buildFloodingLevelChartHtml(data) {
+	var gage = parseFloat(data.gage_height);
+	var normal = parseFloat(data.rp_elevation);
+	var delta = gage - normal;
+	if (!(gage > 0) || !(normal > 0) || !(delta > 0)) return "";
+
+	var chartMaxPx = 100;
+	var total = normal + delta;
+	var floodHeight = Math.max(1, Math.round((delta / total) * chartMaxPx));
+	var normalHeight = Math.max(24, Math.round((normal / total) * chartMaxPx));
+	var floodDelta = delta.toFixed(2);
+	var normalElev = normal.toFixed(2);
+	var wavePath = "M0,10 L0,5 Q12.5,0 25,5 T50,5 T75,5 T100,5 L100,10 Z";
+
+	return '\x3cdiv style="display:flex;align-items:stretch;gap:6px;width:100%;min-width:min-content;"\x3e' +
+		'\x3cdiv style="flex:1 1 0;min-width:48px;position:relative;"\x3e' +
+			'\x3csvg style="position:absolute;top:-8px;left:0;width:100%;height:10px;" viewBox="0 0 100 10" preserveAspectRatio="none"\x3e' +
+				'\x3cpath d="' + wavePath + '" fill="#ffb3b3"/\x3e' +
+			'\x3c/svg\x3e' +
+			'\x3cdiv style="background:linear-gradient(to bottom,#ffb3b3,#fe8787);height:' + floodHeight + 'px;width:100%;border-radius:4px 4px 0 0;"\x3e\x3c/div\x3e' +
+			'\x3cdiv style="position:relative;"\x3e' +
+				'\x3csvg style="position:absolute;top:-8px;left:0;width:100%;height:10px;" viewBox="0 0 100 10" preserveAspectRatio="none"\x3e' +
+					'\x3cpath d="' + wavePath + '" fill="#87CEEB"/\x3e' +
+				'\x3c/svg\x3e' +
+				'\x3cdiv style="background:linear-gradient(to bottom,#87CEEB,#8ea6ba);height:' + normalHeight + 'px;width:100%;border-radius:0 0 4px 4px;"\x3e\x3c/div\x3e' +
+			'\x3c/div\x3e' +
+		'\x3c/div\x3e' +
+		'\x3cdiv style="flex:0 0 10px;display:flex;flex-direction:column;"\x3e' +
+			'\x3cdiv style="position:relative;height:' + floodHeight + 'px;width:10px;"\x3e' +
+				'\x3cdiv style="position:absolute;left:4px;top:0;bottom:0;width:1px;background:#8b0000;"\x3e\x3c/div\x3e' +
+				'\x3cdiv style="position:absolute;left:0;top:0;width:9px;height:1px;background:#8b0000;"\x3e\x3c/div\x3e' +
+				'\x3cdiv style="position:absolute;left:0;bottom:0;width:9px;height:1px;background:#8b0000;"\x3e\x3c/div\x3e' +
+			'\x3c/div\x3e' +
+			'\x3cdiv style="position:relative;height:' + normalHeight + 'px;width:10px;"\x3e' +
+				'\x3cdiv style="position:absolute;left:4px;top:0;bottom:0;width:1px;background:#142d47;"\x3e\x3c/div\x3e' +
+				'\x3cdiv style="position:absolute;left:0;top:0;width:9px;height:1px;background:#142d47;"\x3e\x3c/div\x3e' +
+				'\x3cdiv style="position:absolute;left:0;bottom:0;width:9px;height:1px;background:#142d47;"\x3e\x3c/div\x3e' +
+			'\x3c/div\x3e' +
+		'\x3c/div\x3e' +
+		'\x3cdiv style="flex:0 0 auto;display:flex;flex-direction:column;"\x3e' +
+			'\x3cdiv style="height:' + floodHeight + 'px;display:flex;align-items:center;color:#a90101;font-weight:bold;font-size:12px;white-space:nowrap;"\x3e' +
+				'+' + floodDelta + ' ft' +
+			'\x3c/div\x3e' +
+			'\x3cdiv style="height:' + normalHeight + 'px;display:flex;align-items:center;color:#142d47;font-weight:bold;font-size:12px;white-space:nowrap;"\x3e' +
+				'Normal: ' + normalElev + ' ft' +
+			'\x3c/div\x3e' +
+		'\x3c/div\x3e' +
+	'\x3c/div\x3e';
+}
+
+// Function to build the sidebar item list from current groupData...
+function buildSidebarItems() {
+	const severityOrder = { critical: 0, error: 1, warn: 2, sdt: 3, clear: 4 };
+	const propList = displayProps ? displayProps.split(",").map(p => p.trim()).filter(Boolean) : [];
+
+	sidebarItems = groupData.map(item => {
+		const { severity, pinIndex } = parseSeverity(item);
+		const cached = cachedAddresses[item.id];
+
+		const props = [];
+		propList.forEach(propName => {
+			const found = findItemProperty(item, propName);
+			if (found) {
+				props.push({ name: found.name, value: found.value });
+			}
+		});
+
+		return {
+			id: item.id,
+			name: item.displayName || item.name,
+			severity: severity,
+			severityIndex: (severity in severityOrder) ? severityOrder[severity] : 99,
+			location: (cached && cached.address) || "Unknown",
+			props: props,
+		};
+	}).filter(item => {
+		return markersByDeviceID.has(item.id) || markersByDeviceID.has(String(item.id));
+	});
+}
+
+// Function to render the sidebar list based on the current sort mode...
+function renderSidebarList() {
+	const sidebar = _dom.sidebarArea;
+	if (!sidebar) return;
+
+	const severityColors = {
+		critical: "#e0351b",
+		error:    "#ff8c00",
+		warn:     "#f5ca1d",
+		sdt:      "#00a1fe",
+		clear:    "#85c25d",
+	};
+	const severityLabels = {
+		critical: "Critical",
+		error:    "Error",
+		warn:     "Warning",
+		sdt:      "SDT",
+		clear:    "OK",
+	};
+
+	const sorted = [...sidebarItems];
+	if (sidebarSortMode === "severity") {
+		sorted.sort((a, b) => a.severityIndex - b.severityIndex || a.name.localeCompare(b.name));
+	} else {
+		sorted.sort((a, b) => a.location.localeCompare(b.location) || a.severityIndex - b.severityIndex || a.name.localeCompare(b.name));
+	}
+
+	let html = `<div class="sidebar-header"><span>Items (${sorted.length})</span><span class="sidebar-sort-buttons"><button class="sidebar-sort-btn${sidebarSortMode === "severity" ? " active" : ""}" data-sort="severity" title="Group by severity">Severity</button><button class="sidebar-sort-btn${sidebarSortMode === "location" ? " active" : ""}" data-sort="location" title="Group by address">Address</button></span></div>`;
+
+	let currentGroup = null;
+	sorted.forEach(item => {
+		const groupKey = sidebarSortMode === "severity" ? item.severity : item.location;
+		if (groupKey !== currentGroup) {
+			currentGroup = groupKey;
+			const headerLabel = escapeHtml(sidebarSortMode === "severity" ? (severityLabels[groupKey] || groupKey) : groupKey);
+			html += `<div class="sidebar-group-header" title="${headerLabel}">${headerLabel}</div>`;
+		}
+		const color = severityColors[item.severity] || "#85c25d";
+		const label = severityLabels[item.severity] || "OK";
+		const propsHtml = buildSidebarPropsHtml(item.props);
+		const itemName = escapeHtml(item.name);
+		html += `<div class="sidebar-item" data-device-id="${escapeHtml(item.id)}" title="${itemName} - ${label}">
+			<span class="sidebar-dot" style="background-color:${color};"></span>
+			<span class="sidebar-item-content"><span class="sidebar-item-name">${itemName}</span>${propsHtml}</span>
+		</div>`;
+	});
+	sidebar.innerHTML = html;
+}
+
+// Function to check whether the sidebar is currently expanded...
+function isSidebarVisible() {
+	const sidebar = _dom.sidebarArea;
+	return Boolean(sidebar && !sidebar.classList.contains("sidebar-hidden"));
+}
+
+// Function to populate the sidebar with all plotted items...
+function populateSidebar() {
+	const sidebar = _dom.sidebarArea;
+	if (!sidebar) return;
+
+	// Building the item list walks every item and its display properties, and rendering rewrites
+	// the entire list markup, so skip both while the sidebar is collapsed and catch up when the
+	// user opens it...
+	if (isSidebarVisible()) {
+		_sidebarNeedsRebuild = false;
+		buildSidebarItems();
+		renderSidebarList();
+	} else {
+		_sidebarNeedsRebuild = true;
+	}
+
+	if (!sidebar._clickBound) {
+		sidebar._clickBound = true;
+		sidebar.addEventListener("click", (e) => {
+			const sortBtn = e.target.closest(".sidebar-sort-btn");
+			if (sortBtn) {
+				sidebarSortMode = sortBtn.dataset.sort;
+				renderSidebarList();
+				return;
+			}
+
+			const row = e.target.closest(".sidebar-item");
+			if (!row) return;
+			const deviceId = row.dataset.deviceId;
+			const marker = markersByDeviceID.get(Number(deviceId)) || markersByDeviceID.get(deviceId);
+			if (!marker) return;
+
+			sidebar.querySelectorAll(".sidebar-item.active").forEach(el => el.classList.remove("active"));
+			row.classList.add("active");
+
+			const pos = marker.position;
+			if (pos) {
+				if (map.getZoom() < 12) {
+					map.setZoom(14);
+				}
+				map.panTo(pos);
+			}
+
+			const groupItem = groupData.find(g => String(g.id) === String(deviceId));
+			if (groupItem) {
+				toggleHighlight(marker, groupItem);
+			}
+		});
+	}
+}
+
+// Donut chart data URLs keyed by severity mix, since clusters with the same composition produce
+// byte-identical SVG and the markup plus base64 encoding is rebuilt for every cluster on every
+// clustering pass (which happens on each pan, zoom, and refresh)...
+var _clusterIconCache = new Map();
+var CLUSTER_ICON_CACHE_MAX = 200;
+
+// Our custom renderer for MarkerClusterer to create donut charts based on status of clustered items...
+var renderer = {
+	render ({ markers, count, position }) {
+		// Since Google Maps markers don't have direct support for metadata, I'm using the marker's z-index to capture the group's severity: 1=warning, 2=error, 3=critical.
+
+		// Create objects to hold per-severity metrics...
+		const severityCounts = new Map([["4",0],["3",0],["2",0],["1",0],["0",0]]);
+		const severityPercents = new Map([["4",0],["3",0],["2",0],["1",0]]);
+		const severityOffsets = new Map([["4",0],["3",0],["2",0],["1",0]]);
+
+		// Get counts of clustered pins by severity...
+		markers.forEach((value, key) => {
+			const severity = value.zIndex > 0 ? value.zIndex.toString() : "0";
+			severityCounts.set(severity, (severityCounts.get(severity) || 0) + 1);
+		});
+
+		// (Credit for the technique I'm using to create SVG donut charts goes to this site: https://heyoka.medium.com/scratch-made-svg-donut-pie-charts-in-html5-2c587e935d72 )
+
+		// Calculate sizes & offsets for our chart...
+		// First segment should always have an offset of 25 to have it start at 12:00 on the circle...
+		const baseOffset = 25;
+		let offsetSum = 0;
+		// Calculate percentages for each severity...
+		severityPercents.forEach((value, key) => {
+			const percent = (severityCounts.get(key)/count) * 100;
+			severityPercents.set(key, percent);
+
+			// Calculate offsets needed per chart slice...
+			if (percent > 0) {
+				if (offsetSum == 0) {
+					// This is our first item to chart, so it will establish the offset for subsequent chart slices...
+					severityOffsets.set(key, baseOffset);
+				} else {
+					// Formula for calculating offset after first segment: 100-{sum of length of previous segments} + 25...
+					const offset = (100 - offsetSum) + baseOffset;
+					severityOffsets.set(key, offset);
+				}
+				offsetSum = offsetSum + percent;
+			}
+		});
+
+		// Every value interpolated into the SVG below goes into the cache key, so a hit is always
+		// byte-identical to a freshly built chart...
+		const iconKey = [
+			severityPercents.get("4"), severityPercents.get("3"), severityPercents.get("2"), severityPercents.get("1"),
+			severityOffsets.get("4"), severityOffsets.get("3"), severityOffsets.get("2"), severityOffsets.get("1"),
+			mapTilt
+		].join("|");
+
+		let chartUrl = _clusterIconCache.get(iconKey);
+		if (!chartUrl) {
+			// Create an SVG donut chart representing severities of clustered pins...
+			const svg = window.btoa(`
+			<svg fill="#0000ff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 42" class="donut">
+				<filter id="gaussian-blur" x="-20%" y="-20%" width="140%" height="140%">
+					<feDropShadow dx="0" dy="${mapTilt/100+0.7}" stdDeviation="1.3" flood-opacity="0.7" />
+				</filter>
+				<g filter="url(#gaussian-blur)">
+					<!-- Defines the center of the donut... -->
+					<circle class="donut-hole" cx="21" cy="21" r="15.91549430918954" fill="#fff"></circle>
+					<!-- Our base circle, colored green by default... -->
+					<circle class="donut-ring" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#85c25d" stroke-width="7"></circle>
+					<!-- First segment should always have an offset of 25 to have it start at 12am on the circle... -->
+					<!-- SDTs... -->
+					<circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#00a1fe" stroke-width="7" stroke-dasharray="${severityPercents.get("4")} ${100-severityPercents.get("4")}" stroke-dashoffset="${severityOffsets.get("4")}"></circle>
+					<!-- Criticals... -->
+					<circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#e0351b" stroke-width="7" stroke-dasharray="${severityPercents.get("3")} ${100-severityPercents.get("3")}" stroke-dashoffset="${severityOffsets.get("3")}"></circle>
+					<!-- Errors... -->
+					<circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#ff8c00" stroke-width="7" stroke-dasharray="${severityPercents.get("2")} ${100-severityPercents.get("2")}" stroke-dashoffset="${severityOffsets.get("2")}"></circle>
+					<!-- Warnings... -->
+					<circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#f5ca1d" stroke-width="7" stroke-dasharray="${severityPercents.get("1")} ${100-severityPercents.get("1")}" stroke-dashoffset="${severityOffsets.get("1")}"></circle>
+				</g>
+			</svg>`);
+			chartUrl = `data:image/svg+xml;base64,${svg}`;
+			if (_clusterIconCache.size >= CLUSTER_ICON_CACHE_MAX) {
+				_clusterIconCache.delete(_clusterIconCache.keys().next().value);
+			}
+			_clusterIconCache.set(iconKey, chartUrl);
+		}
+
+		// Add the chart to the map...
+		const clusterContent = document.createElement("div");
+		clusterContent.style.cssText = "position:relative;width:45px;height:45px;cursor:pointer;";
+		const chartImg = document.createElement("img");
+		chartImg.src = chartUrl;
+		chartImg.width = 45;
+		chartImg.height = 45;
+		chartImg.alt = `${count} items`;
+		clusterContent.appendChild(chartImg);
+		const countLabel = document.createElement("div");
+		countLabel.textContent = String(count);
+		countLabel.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(0,0,0,0.9);font-size:12px;font-weight:500;pointer-events:none;";
+		clusterContent.appendChild(countLabel);
+
+		const marker = new google.maps.marker.AdvancedMarkerElement({
+			position,
+			content: clusterContent,
+			zIndex: 1000 + count,
+		});
+
+		// Create hover content
+		const getInfoContent = () => {
+			// Get device details from markers
+			const deviceDetails = markers.map(marker => {
+				const content = marker.content;
+				const iconDiv = content.querySelector('.icon');
+				const nameLink = content.querySelector('.groupName a');
+				let status = 'clear';
+				let sdtStatus = '';
+				let statusRank = 0;
+				if (iconDiv.classList.contains('critical')) {
+					status = 'critical';
+					statusRank = 4;
+				} else if (iconDiv.classList.contains('error')) {
+					status = 'error';
+					statusRank = 3;
+				} else if (iconDiv.classList.contains('warn')) {
+					status = 'warning';
+					statusRank = 2;
+				}
+				if (iconDiv.classList.contains('sdt')) {
+					sdtStatus = ' <span class="sdtNote">(in SDT)</span>';
+					status = 'sdt';
+					statusRank = 1;
+				}
+
+				return {
+					name: nameLink.textContent,
+					link: nameLink.href,
+					status,
+					sdtStatus,
+					statusRank,
+					position: marker.position
+				}
+			});
+
+			// Sort the resources by status, then alphabetically by severity...
+			deviceDetails.sort((a,b)=> (b.statusRank - a.statusRank || a.name.localeCompare(b.name)  ));
+
+			// Calculate bounds for the cluster...
+			const clusterBounds = new google.maps.LatLngBounds();
+			deviceDetails.forEach(device => {
+				clusterBounds.extend(device.position);
+			});
+
+			return `
+				<div class="mapInfoPopupWindow">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+						<div style="font-weight: 600; font-size: 14px;">Cluster Summary</div>
+							<button onclick="betterMapWidgetCall('${betterMapInstanceId}', 'fitClusterBounds', ${clusterBounds.getSouthWest().lat()}, ${clusterBounds.getSouthWest().lng()}, ${clusterBounds.getNorthEast().lat()}, ${clusterBounds.getNorthEast().lng()})" style="
+							padding: 6px 12px;
+							background: #1a73e8;
+							color: white;
+							border: none;
+							border-radius: 4px;
+							font-size: 13px;
+							cursor: pointer;
+							display: flex;
+							align-items: center;
+							gap: 6px;
+							transition: background 0.2s;
+						" onmouseover="this.style.background='#1557b0'" onmouseout="this.style.background='#1a73e8'">
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+								<circle cx="11" cy="11" r="8"/>
+								<line x1="21" y1="21" x2="16.65" y2="16.65"/>
+								<line x1="11" y1="8" x2="11" y2="14"/>
+								<line x1="8" y1="11" x2="14" y2="11"/>
+							</svg>
+							Zoom into Cluster
+						</button>
+					</div>
+					<div style="display: grid; gap: 8px; margin-bottom: 16px;">
+						<div style="display: flex; align-items: center; gap: 8px;">
+							<div style="width: 12px; height: 12px; border-radius: 50%; background: #e0351b;"></div>
+							<span>Critical: ${severityCounts.get("3") || 0}</span>
+						</div>
+						<div style="display: flex; align-items: center; gap: 8px;">
+							<div style="width: 12px; height: 12px; border-radius: 50%; background: #ff8c00;"></div>
+							<span>Error: ${severityCounts.get("2") || 0}</span>
+						</div>
+						<div style="display: flex; align-items: center; gap: 8px;">
+							<div style="width: 12px; height: 12px; border-radius: 50%; background: #f5ca1d;"></div>
+							<span>Warning: ${severityCounts.get("1") || 0}</span>
+						</div>
+						<div style="display: flex; align-items: center; gap: 8px;">
+							<div style="width: 12px; height: 12px; border-radius: 50%; background: #85c25d;"></div>
+							<span>Clear: ${severityCounts.get("0") || 0}</span>
+						</div>
+						<div style="display: flex; align-items: center; gap: 8px;">
+							<div style="width: 12px; height: 12px; border-radius: 50%; background: #00a1fe;"></div>
+							<span>SDT: ${severityCounts.get("4") || 0}</span>
+						</div>
+					</div>
+					<div style="border-top: 1px solid #eee; padding-top: 12px;">
+						<div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">${mapSourceType.replace(/^./, char => char.toUpperCase())} (${count})</div>
+						<div style="display: grid; gap: 4px;">
+							${deviceDetails.map(device => buildClusterDeviceRowHtml(device)).join('')}
+						</div>
+					</div>
+				</div>
+			`;
+		}
+
+		// Add click listener
+		marker.addListener('gmp-click', () => {
+			closeAllInfoWindows();
+			clusterInfoWindow = new CustomInfoWindow({
+				position: marker.position,
+				content: getInfoContent(),
+				anchor: 'top',
+				offset: 50
+			});
+			clusterInfoWindow.open(map);
+		});
+
+		return marker;
+	}
+}
+
+// Function to apply the selected marker style to existing markers...
+function applyMarkerStyleFromSelect() {
+	const v = _dom.markerStyleSelect.value;
+	markerStyle = v === "circles" ? "circles" : "pins";
+	for (const m of markers) {
+		if (m.content && m.content.classList) {
+			m.content.classList.toggle("dot-style", markerStyle === "circles");
+		}
+	}
+	if (clusterer && typeof clusterer === "object") {
+		clusterer.render();
+	}
+	if (markerInfoWindow) {
+		markerInfoWindow.close();
+		markerInfoWindow = null;
+	}
+}
+
+// Function to enable the weather overlays when the appropriate checkbox is selected...
+function enableWeather() {
+	const wafflehouseOnly = _dom.otherWeatherOverlays.value === "wafflehouse";
+	if (_dom.weather.checked || wafflehouseOnly) {
+		_dom.weatherOptions.style.display = "inline-flex";
+		if (_dom.weather.checked) {
+			initWeather();
+		} else {
+			addWeatherLayer();
+		}
+	} else {
+		clearInterval(weatherRefresher);
+		weatherRefresher = null;
+		map.overlayMapTypes.clear();
+		clearOverlayState();
+		_dom.weatherOptions.style.display = "none";
+	}
+}
+
+// Function to fetch the latest weather map data from RainViewer's API...
+async function fetchRainViewerData() {
+	const response = await fetch("https://api.rainviewer.com/public/weather-maps.json");
+	if (!response.ok) throw new Error(`RainViewer API error: ${response.status} ${response.statusText}`);
+	rvAPIData = await response.json();
+}
+
+// Function to initialize weather data and start the refresh interval...
+async function initWeather() {
+	if (_dom.weatherType.value === "radar") {
+		try { await fetchRainViewerData(); } catch (error) {
+			console.error(`Map ${widgetID}: Failed to fetch RainViewer weather data:`, error);
+		}
+	}
+
+	addWeatherLayer();
+
+	clearInterval(weatherRefresher);
+	weatherRefresher = setInterval(async function() {
+		if (_dom.weatherType.value === "radar") {
+			try { await fetchRainViewerData(); } catch (error) {
+				console.error(`Map ${widgetID}: Failed to refresh weather data:`, error);
+			}
+		}
+		addWeatherLayer();
+		console.log(`Map ${widgetID}: Weather maps refreshed.`);
+	}, weatherRefreshMinutes*1000*60);
+}
+
+// Function to get the latest radar frame from RainViewer...
+function initRainViewerData() {
+	const radar = rvAPIData.radar || {};
+	const pastFrames = Array.isArray(radar.past) ? radar.past : [];
+	// The frame we render is the most recent observed image, so this index has to come from
+	// past[] alone. Deriving it inside the nowcast branch left it at -1 whenever RainViewer
+	// returned no forecast frames, and every tile then dereferenced rvMapFrames[-1]...
+	rvLastPastFramePosition = pastFrames.length - 1;
+	rvMapFrames = Array.isArray(radar.nowcast) ? pastFrames.concat(radar.nowcast) : pastFrames.slice();
+}
+
+// Custom MapType implementation for weather tile overlays.
+// Uses a two-layer DOM structure: an outer container div (managed by
+// Google Maps for zoom/fade transitions) wrapping an inner <img> with
+// weatherOpacity applied directly. Because Google Maps only animates
+// the outer container, tiles never flash at full opacity during zooms.
+//
+// Revisited tiles are served from the browser's own HTTP cache. An in-page
+// cache is not useful here because getTile has to return a fresh element
+// each call, so it can only hand back the same URL a miss would have used.
+// Function to create a weather tile overlay layer...
+function createWeatherTileLayer(name, getTileUrl, opts = {}) {
+	const tileSize = new google.maps.Size(256, 256);
+	return {
+		tileSize,
+		maxZoom: opts.maxZoom,
+		name,
+		getTile(coord, zoom, ownerDocument) {
+			const div = ownerDocument.createElement('div');
+			div.style.width = tileSize.width + 'px';
+			div.style.height = tileSize.height + 'px';
+			if (opts.maxZoom && zoom > opts.maxZoom) return div;
+			const url = getTileUrl(coord, zoom);
+			if (!url) return div;
+			const img = ownerDocument.createElement('img');
+			img.src = url;
+			img.style.width = '100%';
+			img.style.height = '100%';
+			img.style.display = 'block';
+			img.style.opacity = weatherOpacity;
+			div.appendChild(img);
+			return div;
+		},
+		releaseTile(tile) {
+			const img = tile.querySelector('img');
+			if (img) { img.src = ''; img.remove(); }
+		},
+	};
+}
+
+// Function to add weather & other optional overlays to the map...
+async function addWeatherLayer() {
+	const optionalMapType = _dom.otherWeatherOverlays.value;
+	const wafflehouseOnly = optionalMapType === "wafflehouse";
+
+	if (_dom.weather.checked || wafflehouseOnly) {
+		const mapType = _dom.weatherType.value;
+
+		try {
+			map.overlayMapTypes.clear();
+
+			if (_dom.weather.checked && !wafflehouseOnly) {
+			if (mapType == "radar") {
+				initRainViewerData();
+
+				let colorScheme = rvOptionKind == 'satellite' ? 0 : rvOptionColorScheme;
+				let smooth = rvOptionKind == 'satellite' ? 0 : rvOptionSmoothData;
+				let snow = rvOptionKind == 'satellite' ? 0 : rvOptionSnowColors;
+
+				map.overlayMapTypes.insertAt(0, createWeatherTileLayer(mapType, (tile, zoom) => {
+					// Returning nothing yields a blank tile rather than throwing per tile when
+					// RainViewer gave us no usable frames...
+					const frame = rvMapFrames[rvLastPastFramePosition];
+					if (!frame || !frame.path || !rvAPIData.host) return null;
+					return [rvAPIData.host + frame.path, 256, zoom, tile.x, tile.y, colorScheme, smooth + '_' + snow + '.png'].join('/');
+				}, { maxZoom: 7 }));
+
+			} else if (mapType.match(/(nexrad|q2)/g)) {
+				const nexradCacheBuster = Math.floor(Date.now() / (weatherRefreshMinutes * 60000));
+				map.overlayMapTypes.insertAt(0, createWeatherTileLayer(mapType, (tile, zoom) => {
+					return "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/" + mapType + "/" + zoom + "/" + tile.x + "/" + tile.y + ".png?" + nexradCacheBuster;
+				}, { maxZoom: 12 }));
+
+			} else if (mapType === "openweather") {
+				if (!openWeatherAPIKey) {
+					console.error(`Map ${widgetID}: OpenWeather radar requires an API key. Set it via the 'OpenWeatherAPIKey' dashboard token or the 'openWeatherAPIKey' variable.`);
+				} else {
+					map.overlayMapTypes.insertAt(0, createWeatherTileLayer("openweather", (tile, zoom) => {
+						return "https://tile.openweathermap.org/map/precipitation_new/" + zoom + "/" + tile.x + "/" + tile.y + ".png?appid=" + openWeatherAPIKey;
+					}, { maxZoom: 12 }));
+				}
+
+			} else if (mapType === "xweather") {
+				if (!xweatherAPIID || !xweatherAPIKey) {
+					console.error(`Map ${widgetID}: Xweather radar requires an API ID and secret. Set them via the 'XweatherAPIID' and 'XweatherAPIKey' dashboard tokens or the 'xweatherAPIID' and 'xweatherAPIKey' variables.`);
+				} else {
+					map.overlayMapTypes.insertAt(0, createWeatherTileLayer("xweather", (tile, zoom) => {
+						return "https://maps.aerisapi.com/" + xweatherAPIID + "_" + xweatherAPIKey + "/radar/" + zoom + "/" + tile.x + "/" + tile.y + "/current.png";
+					}, { maxZoom: 12 }));
+				}
+			}
+			}
+		} catch (error) {
+			console.error(`Map ${widgetID}: Error adding weather layer:`, error);
+		}
+
+		// Look to see if we should add wildfire into the map...
+		if (optionalMapType == "wildfires") {
+			clearOverlayState();
+
+			// Load the wildfire data from the ArcGIS site...
+			// More info about this source of active US wildfire data can be found at: https://www.arcgis.com/home/item.html?id=d957997ccee7408287a963600a77f61f
+			// From that site, you can click "View" above the "URL" field on the right-hand side. From there, you'll see info on the two available layers. We're using layer "1" for perimeter data (denoted in the URL below with the "_1"), and pulling geojson data (per the suffix).
+			//map.data.loadGeoJson("https://opendata.arcgis.com/datasets/d957997ccee7408287a963600a77f61f_1.geojson");
+			const usWildfireUrl = `https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/USA_Wildfires_v1/FeatureServer/1/query?where=CurrentDateAge+<%3D+7&outFields=*&f=geojson&ts=${Date.now()}`;
+			
+			// Australian bushfire data from ArcGIS (near real-time bushfire boundaries)...
+			// More info: https://www.arcgis.com/home/item.html?id=8b28109ce26b43b8968a3c9baa608f43
+			const auWildfireUrl = `https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/arcgis/rest/services/Near_Real_Time_Bushfire_Boundaries_view/FeatureServer/3/query?where=0%3D0&geometryType=esriGeometryPolyline&units=esriSRUnit_Meter&outFields=*&returnGeometry=true&f=pgeojson&ts=${Date.now()}`;
+
+			// Function to merge multiple GeoJSON FeatureCollections into a single FeatureCollection...
+			function mergeGeoJson(...datasets) {
+				const merged = { type: "FeatureCollection", features: [] };
+				datasets.forEach(data => {
+					if (data && data.features) {
+						merged.features = merged.features.concat(data.features);
+					}
+				});
+				return merged;
+			}
+
+			// Fetch both US and Australian wildfire data in parallel...
+			Promise.all([
+				fetch(usWildfireUrl).then(response => response.ok ? response.json() : null).catch(() => null),
+				fetch(auWildfireUrl).then(response => response.ok ? response.json() : null).catch(() => null)
+			]).then(([usData, auData]) => {
+				// Tag features with source and namespace the IDs to prevent collisions when merged...
+				if (usData && usData.features) {
+					usData.features.forEach(feature => {
+						feature.properties = feature.properties || {};
+						feature.properties._fireSource = 'US';
+						if (feature.id != null) feature.id = 'US_' + feature.id;
+					});
+					console.debug(`US wildfires loaded: ${usData.features.length} features`);
+				}
+				if (auData && auData.features) {
+					auData.features.forEach(feature => {
+						feature.properties = feature.properties || {};
+						feature.properties._fireSource = 'AU';
+						if (feature.id != null) feature.id = 'AU_' + feature.id;
+					});
+					console.debug(`Australian bushfires loaded: ${auData.features.length} features`);
+				}
+
+				// Merge all wildfire data into a single FeatureCollection and add to map...
+				const combined = mergeGeoJson(usData, auData);
+				if (combined.features.length > 0) {
+					map.data.addGeoJson(combined);
+					console.debug(`Total wildfire features plotted: ${combined.features.length}`);
+				}
+			}).catch(error => {
+				console.error(`Map ${widgetID}: Error loading wildfire data:`, error);
+			});
+
+			// Color the wildfire areas as red...
+			map.data.setStyle({ fillColor: 'red', strokeWeight: 1.0, strokeColor: 'salmon' });
+
+			// Wildfire info popup helpers...
+			const WILDFIRE_FLAME_SVG = `<svg width="36" height="40" viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;" role="img" aria-label="Wildfire with smoke">
+				<defs>
+					<linearGradient id="smokeGrad" x1="18" y1="1" x2="18" y2="23" gradientUnits="userSpaceOnUse">
+						<stop offset="0" stop-color="#8A8F92" stop-opacity="0.18"/>
+						<stop offset="0.45" stop-color="#62686D" stop-opacity="0.36"/>
+						<stop offset="1" stop-color="#2F363B" stop-opacity="0.62"/>
+					</linearGradient>
+					<radialGradient id="emberGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(18 29) rotate(90) scale(11 10)">
+						<stop offset="0" stop-color="#FFD166"/>
+						<stop offset="0.55" stop-color="#FF8C1A"/>
+						<stop offset="1" stop-color="#B92C17"/>
+					</radialGradient>
+				</defs>
+				<path d="M14.7 22.4C10.7 21 8.5 18.5 8.8 15.6C9 13.1 10.9 11.5 13.6 11.1C10.8 9.7 9.5 7.8 10.1 6C10.8 3.9 13.2 2.9 15.6 3.5C17.1 3.9 18.2 4.8 18.9 6C20 3.9 22.6 3.1 24.9 3.9C27.4 4.8 28.4 7.1 27.3 9.2C30 9.6 31.8 11.4 31.8 13.7C31.7 16.4 29.4 18.3 25.7 19C25.2 22 20.8 24.2 14.7 22.4Z" fill="url(#smokeGrad)"/>
+				<path d="M12.8 19.1C10.7 18 9.8 16.5 10.3 14.9C10.9 13.1 13 12.4 15.2 13.1C14.1 11.4 14.2 9.8 15.5 8.7C16.8 7.6 19 8 20.2 9.5C21.1 7.9 23.1 7.4 24.8 8.3C26.5 9.2 27 10.9 26 12.4C28.1 12.7 29.4 13.9 29.2 15.5C29 17.6 26.5 18.8 23.4 18.8C21.7 20.9 16.8 21.2 12.8 19.1Z" fill="#252B2F" opacity="0.28"/>
+				<path d="M18 37C10.8 37 6 32.2 6 25.8C6 20.3 9.8 16.7 12.6 12.9C14.9 9.7 15.4 6.4 14.8 3C20.7 6.4 24.7 11.8 24.2 17C26.4 15.5 27.5 13.1 27.9 10.8C31.2 14.3 33 19.5 33 24.9C33 32 27.2 37 18 37Z" fill="#B92C17"/>
+				<path d="M18.2 36.8C13.4 36.8 10.5 33.7 10.5 29.6C10.5 26 13.2 23.5 15.1 20.8C16.6 18.7 16.9 16.7 16.5 14.4C20.4 16.6 22.6 20.1 22.1 23.4C23.6 22.5 24.6 21 25.1 19.3C27.1 21.8 28.2 25 28.2 28.1C28.2 33.2 24.1 36.8 18.2 36.8Z" fill="url(#emberGlow)"/>
+				<path d="M18.1 36.7C15.4 36.7 13.7 35 13.7 32.7C13.7 30.6 15.4 29.1 16.5 27.5C17.4 26.1 17.6 24.9 17.3 23.4C20 25 21.4 27.1 21.1 29.2C22 28.7 22.7 27.8 23.1 26.8C24.2 28.2 24.8 30 24.8 31.7C24.8 34.8 22.2 36.7 18.1 36.7Z" fill="#FFE08A"/>
+			</svg>`;
+			function formatWildfireAgeDays(ageDays, locale) {
+				if (ageDays == null) {
+					return { display: '(not available)', badge: null };
+				}
+				if (ageDays === 0) {
+					return { display: 'Today', badge: 0 };
+				}
+				const days = Number(ageDays);
+				return {
+					display: days.toLocaleString(locale, numFormatOptions) + ' days ago',
+					badge: days
+				};
+			}
+
+			function wildfireAgeBadgeHtml(displayText, ageDays) {
+				if (displayText == null || displayText === '(not available)') {
+					return `<span style="font-size:13px;font-weight:600;color:rgb(20,29,48);">${escapeHtml(displayText)}</span>`;
+				}
+				let bg = '#f0f0f0';
+				let color = '#555';
+				if (ageDays === 0 || displayText === 'Today') {
+					bg = '#e8f5e9';
+					color = '#2e7d32';
+				} else if (typeof ageDays === 'number' && ageDays <= 3) {
+					bg = '#fff8e1';
+					color = '#f57c00';
+				}
+				return `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600;background:${bg};color:${color};">${escapeHtml(displayText)}</span>`;
+			}
+
+			function buildWildfireInfoHtml(options) {
+				const {
+					title,
+					category,
+					comments,
+					highlightValue,
+					highlightUnit,
+					stats
+				} = options;
+
+				const categoryChip = category
+					? `<span style="display:inline-block;margin-top:4px;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:#fff3f3;color:#b91c1c;">${escapeHtml(category)}</span>`
+					: '';
+
+				const commentsBlock = comments
+					? `<p style="margin:10px 0 0 0;padding:8px 10px;border-left:3px solid #e0351b;background:#fafafa;border-radius:0 4px 4px 0;font-size:12px;color:#555;line-height:1.4;white-space:normal;word-break:break-word;">${escapeHtml(comments)}</p>`
+					: '';
+
+				const highlightBlock = buildWildfireHighlightBlock(
+					highlightValue ? escapeHtml(highlightValue) : "",
+					highlightUnit ? escapeHtml(highlightUnit) : ""
+				);
+
+				const statRows = (stats || []).map(stat => {
+					const valueHtml = stat.badge != null
+						? wildfireAgeBadgeHtml(stat.value, stat.badge)
+						: `<span style="font-size:13px;font-weight:600;color:rgb(20,29,48);text-align:right;max-width:60%;word-break:break-word;">${escapeHtml(stat.value)}</span>`;
+					return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 8px;background:#f5f5f5;border-radius:4px;">
+						<span style="font-size:12px;color:#666;flex-shrink:0;">${escapeHtml(stat.label)}</span>
+						${valueHtml}
+					</div>`;
+				}).join('');
+
+				return `<div class="mapInfoPopupWindow" style="line-height:1.4;color:rgb(20,29,48);max-width:320px;white-space:normal;word-break:break-word;">
+					<div style="display:flex;align-items:flex-start;gap:10px;">
+						${WILDFIRE_FLAME_SVG}
+						<div style="min-width:0;flex:1;">
+						<div style="font-weight:600;font-size:16px;line-height:1.3;">${escapeHtml(title || 'Unknown')}</div>
+						${categoryChip}
+						</div>
+					</div>
+					${commentsBlock}
+					${highlightBlock}
+					<div style="display:grid;gap:6px;margin-top:${highlightBlock ? '0' : '12px'};">
+						${statRows}
+					</div>
+				</div>`;
+			}
+
+			// Show wildfire info on either "click" or "mouseover" (refer to the 'showWildfireInfoEvent' variable set at the top of this script)...
+			addOverlayDataListener(showWildfireInfoEvent, function(event) {
+				const fireSource = event.feature.getProperty("_fireSource");
+				let infoContent = '';
+
+				if (fireSource === 'AU') {
+					const fireName = event.feature.getProperty("fire_name");
+					const fireType = event.feature.getProperty("fire_type");
+					let ignitionDate = event.feature.getProperty("ignition_date");
+					if (ignitionDate != null && typeof ignitionDate === 'number') {
+						ignitionDate = new Date(ignitionDate).toLocaleDateString('en-AU');
+					} else if (ignitionDate == null) {
+						ignitionDate = '(not available)';
+					}
+					const areaHaRaw = event.feature.getProperty("area_ha");
+					const perimRaw = event.feature.getProperty("perim_km");
+					const state = event.feature.getProperty("state") || '(not available)';
+					const agency = event.feature.getProperty("agency") || '(not available)';
+
+					infoContent = buildWildfireInfoHtml({
+						title: fireName || 'Unknown',
+						category: fireType,
+						highlightValue: areaHaRaw != null
+							? Number(areaHaRaw).toLocaleString('en-AU', numFormatOptions)
+							: null,
+						highlightUnit: areaHaRaw != null ? 'hectares' : null,
+						stats: [
+							{ label: 'Ignition date', value: ignitionDate },
+							{ label: 'Perimeter', value: perimRaw != null ? Number(perimRaw).toLocaleString('en-AU', numFormatOptions) + ' km' : '(not available)' },
+							{ label: 'State', value: state },
+							{ label: 'Agency', value: agency }
+						]
+					});
+				} else {
+					const incidentName = event.feature.getProperty("IncidentName");
+					let comments = event.feature.getProperty("Comments");
+					if (comments != null) {
+						comments = String(comments).trim();
+						if (!comments) comments = null;
+					}
+					const acresRaw = event.feature.getProperty("GISAcres");
+					const fireCategory = event.feature.getProperty("FeatureCategory");
+					const createAge = formatWildfireAgeDays(event.feature.getProperty("CreateDateAge"), 'en-US');
+					const currentAge = formatWildfireAgeDays(event.feature.getProperty("CurrentDateAge"), 'en-US');
+
+					infoContent = buildWildfireInfoHtml({
+						title: incidentName || 'Unknown',
+						category: fireCategory,
+						comments: comments,
+						highlightValue: acresRaw != null
+							? Number(acresRaw).toLocaleString('en-US', numFormatOptions)
+							: null,
+						highlightUnit: acresRaw != null ? 'calculated acres' : null,
+						stats: [
+							{ label: 'First reported', value: createAge.display, badge: createAge.badge },
+							{ label: 'Last GIS update', value: currentAge.display, badge: currentAge.badge }
+						]
+					});
+				}
+
+				closeAllInfoWindows();
+				overlayInfoWindow.setContent(infoContent);
+				overlayInfoWindow.setPosition(event.latLng);
+				overlayInfoWindow.open(map);
+			});
+			if (showWildfireInfoEvent == "mouseover") {
+				addOverlayDataListener('mouseout', function(event) {
+					overlayInfoWindow.close();
+				});
+			}
+		// Look to see if we should add power outages to the map...
+		} else if (optionalMapType == "us-poweroutages") {
+			// ODIN county outage API (CORS-enabled, ~30KB). Primary source since USA Today's
+			// ~6.8MB JS feed cannot be fetched directly from the browser and public CORS
+			// proxies now return 522/408 timeouts against data.usatoday.com.
+			const odinOutageApiURL = 'https://openenergyhub.ornl.gov/api/explore/v2.1/catalog/datasets/odin-real-time-outages-county/records?select=communitydescriptor,county,state,sum(metersaffected)&group_by=communitydescriptor,county,state&limit=-1';
+			// USA Today fallback (requires CORS proxy; often fails with 522 on large payload)...
+			const usaTodayDataURL = `https://data.usatoday.com/media/jsons/power/active/national_powerout_slider_data.js`;
+			const corsProxies = [
+				{ url: 'https://api.allorigins.win/raw?url=', encode: true },
+				{ url: 'https://api.codetabs.com/v1/proxy?quest=', encode: false }
+			];
+			// US Counties GeoJSON with FIPS codes (from plotly datasets)...
+			const countiesGeoJsonURL = 'https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json';
+			const countyCustomersUsaTodayURL = getBetterMapWidgetAssetBase() + 'data/county-electric-customers-usatoday.json';
+			const countyCustomersOrnlURL = getBetterMapWidgetAssetBase() + 'data/county-electric-customers.json';
+
+			// Cache key for county GeoJSON - stored in localStorage since boundaries are static
+			const COUNTIES_CACHE_KEY = 'lm_bmw.countiesGeoJson.v1';
+			const COUNTY_CUSTOMERS_CACHE_KEY = 'lm_bmw.countyElectricCustomers.v2';
+			let countyCustomerSources = null;
+
+			// Function to get cached county GeoJSON or fetch fresh...
+			async function getCountiesGeoJson() {
+				// Already parsed during this page's lifetime, so skip the multi-megabyte re-parse...
+				if (_countiesGeoJsonMemo) {
+					return _countiesGeoJsonMemo;
+				}
+
+				// Try localStorage cache first (county boundaries are static, persist across sessions)
+				try {
+					const cached = localStorage.getItem(COUNTIES_CACHE_KEY);
+					if (cached) {
+						console.debug('Using cached counties GeoJSON from localStorage');
+						_countiesGeoJsonMemo = JSON.parse(cached);
+						return _countiesGeoJsonMemo;
+					}
+				} catch (e) {
+					console.debug('localStorage read failed:', e.message);
+				}
+
+				// Fetch fresh if not cached
+				console.debug('Fetching fresh counties GeoJSON (will cache for future use)...');
+				const response = await fetch(countiesGeoJsonURL);
+				if (!response.ok) {
+					throw new Error(`Counties GeoJSON fetch error: ${response.status}`);
+				}
+				const data = await response.json();
+
+				// Cache in localStorage for future loads (boundaries don't change)
+				try {
+					localStorage.setItem(COUNTIES_CACHE_KEY, JSON.stringify(data));
+					console.debug('Counties GeoJSON cached to localStorage');
+				} catch (e) {
+					console.debug('localStorage write failed (quota exceeded?):', e.message);
+				}
+
+				_countiesGeoJsonMemo = data;
+				return data;
+			}
+
+			// Bundled county customer totals: USA Today primary, ORNL EAGLE-I fallback (~86KB combined)...
+			async function fetchBundledCustomerTotals(url, label) {
+				const response = await fetch(url);
+				if (!response.ok) {
+					throw new Error(`${label} county customer totals fetch error: ${response.status}`);
+				}
+				return response.json();
+			}
+
+			async function getCountyCustomerTotals() {
+				if (_countyCustomerTotalsMemo) {
+					return _countyCustomerTotalsMemo;
+				}
+
+				try {
+					const cached = localStorage.getItem(COUNTY_CUSTOMERS_CACHE_KEY);
+					if (cached) {
+						const parsed = JSON.parse(cached);
+						if (parsed && parsed.customersByFips) {
+							console.debug('Using cached county electric customer totals from localStorage');
+							_countyCustomerTotalsMemo = parsed;
+							return parsed;
+						}
+					}
+				} catch (e) {
+					console.debug('County customer cache read failed:', e.message);
+				}
+
+				let usaTodayData = null;
+				let ornlData = null;
+
+				try {
+					usaTodayData = await fetchBundledCustomerTotals(countyCustomersUsaTodayURL, 'USA Today');
+					console.debug('Loaded bundled USA Today county customer totals');
+				} catch (e) {
+					console.warn(`Map ${widgetID}: USA Today bundled county customer totals unavailable:`, e.message);
+				}
+
+				try {
+					ornlData = await fetchBundledCustomerTotals(countyCustomersOrnlURL, 'ORNL EAGLE-I');
+					console.debug('Loaded bundled ORNL county customer totals');
+				} catch (e) {
+					console.warn(`Map ${widgetID}: ORNL bundled county customer totals unavailable:`, e.message);
+				}
+
+				if (!usaTodayData && !ornlData) {
+					throw new Error('No bundled county customer totals available');
+				}
+
+				const usaFips = (usaTodayData && usaTodayData.customersByFips) || {};
+				const ornlFips = (ornlData && ornlData.customersByFips) || {};
+				const merged = {};
+				let usaTodayCount = 0;
+				let ornlFallbackCount = 0;
+				const allFips = Object.keys(usaFips).concat(Object.keys(ornlFips));
+
+				for (let i = 0; i < allFips.length; i++) {
+					const fips = allFips[i];
+					if (merged[fips]) continue;
+					if (usaFips[fips] > 0) {
+						merged[fips] = usaFips[fips];
+						usaTodayCount++;
+					} else if (ornlFips[fips] > 0) {
+						merged[fips] = ornlFips[fips];
+						ornlFallbackCount++;
+					}
+				}
+
+				const data = {
+					v: 2,
+					customersByFips: merged,
+					sources: {
+						primary: usaTodayData ? 'usa_today' : 'ornl_eaglei',
+						usaTodayFetched: usaTodayData && usaTodayData.fetched,
+						ornlFetched: ornlData && ornlData.fetched,
+						usaTodayCount: usaTodayCount,
+						ornlFallbackCount: ornlFallbackCount
+					}
+				};
+
+				try {
+					localStorage.setItem(COUNTY_CUSTOMERS_CACHE_KEY, JSON.stringify(data));
+					console.debug('County electric customer totals cached to localStorage');
+				} catch (e) {
+					console.debug('County customer cache write failed:', e.message);
+				}
+				_countyCustomerTotalsMemo = data;
+				return data;
+			}
+
+			function applyOutagePercentages(outageDataByFips, customersByFips) {
+				let applied = 0;
+				for (const fips in outageDataByFips) {
+					const totalCustomers = customersByFips[fips];
+					if (totalCustomers > 0) {
+						outageDataByFips[fips].percentage = Math.min(
+							(outageDataByFips[fips].outageCount / totalCustomers) * 100,
+							100
+						);
+						applied++;
+					}
+				}
+				return applied;
+			}
+
+			// Function to try fetching with fallback proxies...
+			async function fetchWithCorsProxy(targetUrl) {
+				const urlWithCacheBust = targetUrl + `?v=${Date.now()}`;
+				for (let i = 0; i < corsProxies.length; i++) {
+					const proxy = corsProxies[i];
+					const proxyUrl = proxy.url + (proxy.encode ? encodeURIComponent(urlWithCacheBust) : urlWithCacheBust);
+					try {
+						const response = await fetch(proxyUrl);
+						if (response.ok) {
+							console.debug(`Power outage data fetched successfully using proxy ${i + 1}`);
+							return response;
+						}
+						console.warn(`Map ${widgetID}: CORS proxy ${i + 1} returned ${response.status}, trying next...`);
+					} catch (err) {
+						console.warn(`Map ${widgetID}: CORS proxy ${i + 1} failed: ${err.message}, trying next...`);
+					}
+				}
+				throw new Error(`All CORS proxies failed to fetch power outage data`);
+			}
+
+			// Parse ODIN aggregated county outage records...
+			function parseOdinOutageData(data) {
+				const outageDataByFips = {};
+				for (const row of (data.results || [])) {
+					const fips = String(row.communitydescriptor || '').padStart(5, '0');
+					const outageCount = parseInt(row['sum(metersaffected)'], 10) || 0;
+					if (!fips) continue;
+					const county = row.county || 'Unknown';
+					const state = row.state || '';
+					outageDataByFips[fips] = {
+						name: state ? `${county} County, ${state}` : `${county} County`,
+						outageCount: outageCount,
+						percentage: 0,
+						fips: fips
+					};
+				}
+				return { outageDataByFips, maxTimeIndex: 0 };
+			}
+
+			// Try ODIN first, then fall back to USA Today via CORS proxy...
+			async function fetchOutageData() {
+				try {
+					const response = await fetch(odinOutageApiURL);
+					if (!response.ok) {
+						throw new Error(`ODIN outage fetch error: ${response.status}`);
+					}
+					const data = await response.json();
+					console.debug('Power outage data fetched from ODIN API');
+					return Object.assign({ dataSource: 'odin' }, parseOdinOutageData(data));
+				} catch (odinErr) {
+					console.warn(`Map ${widgetID}: ODIN outage fetch failed, falling back to USA Today via CORS proxy:`, odinErr.message);
+				}
+				const outageResponse = await fetchWithCorsProxy(usaTodayDataURL);
+				const outageText = await outageResponse.text();
+				console.debug('Power outage data fetched from USA Today via CORS proxy');
+				return Object.assign({ dataSource: 'usatoday' }, parseOutageData(outageText));
+			}
+
+			// Function to parse USA Today outage data in a single pass...
+			function parseOutageData(outageText) {
+				const allEntries = [];
+				let maxTimeIndex = 0;
+				const propsRegex = /"properties":\s*\{\s*"n"\s*:\s*"([^"]+)"\s*,\s*"o"\s*:\s*"([^"]+)"\s*,\s*"c"\s*:\s*([\d.]+)\s*,\s*"f"\s*:\s*"(\d+)"\s*,\s*"m"\s*:\s*(\d+)/g;
+				let match;
+
+				// Single pass: collect entries and track max time index simultaneously
+				while ((match = propsRegex.exec(outageText)) !== null) {
+					const [_, name, outageCount, percentage, fips, timeIndex] = match;
+					const timeIdx = parseInt(timeIndex, 10) || 0;
+					if (timeIdx > maxTimeIndex) maxTimeIndex = timeIdx;
+					allEntries.push({ name, outageCount, percentage, fips, timeIdx });
+				}
+
+				// Filter for current time entries and build lookup
+				const outageDataByFips = {};
+				for (const entry of allEntries) {
+					if (entry.timeIdx === maxTimeIndex) {
+						outageDataByFips[entry.fips] = {
+							name: entry.name,
+							outageCount: parseInt(entry.outageCount.replace(/,/g, ''), 10) || 0,
+							percentage: parseFloat(entry.percentage) || 0,
+							fips: entry.fips
+						};
+					}
+				}
+				return { outageDataByFips, maxTimeIndex };
+			}
+
+			try {
+				clearOverlayState();
+
+				// Fetch counties, outage data (ODIN/USA Today), and bundled customer totals...
+				const [countiesGeoJson, outageResult, countyCustomerData] = await Promise.all([
+					getCountiesGeoJson(),
+					fetchOutageData(),
+					getCountyCustomerTotals()
+				]);
+
+				const { outageDataByFips, maxTimeIndex: CURRENT_TIME_INDEX, dataSource } = outageResult;
+				const customersByFips = countyCustomerData.customersByFips || {};
+				countyCustomerSources = countyCustomerData.sources || null;
+
+				if (dataSource === 'odin') {
+					const percentCount = applyOutagePercentages(outageDataByFips, customersByFips);
+					const src = countyCustomerSources || {};
+					console.debug(`Applied customer percentages for ${percentCount} counties (USA Today: ${src.usaTodayCount || 0}, ORNL fallback: ${src.ornlFallbackCount || 0})`);
+				}
+
+				console.debug(`Detected maximum time index (m) value: ${CURRENT_TIME_INDEX}`);
+				console.debug(`Parsed ${Object.keys(outageDataByFips).length} counties with current outage data from ${dataSource}`);
+
+				// Merge outage data into the counties GeoJSON by FIPS code...
+				let countiesWithOutages = 0;
+				countiesGeoJson.features.forEach(feature => {
+					const fips = feature.id; // plotly dataset uses 'id' for FIPS code
+					const outageData = outageDataByFips[fips];
+
+					if (outageData) {
+						feature.properties.OutageCount = outageData.outageCount;
+						feature.properties.PercentAffected = outageData.percentage;
+						feature.properties.CountyName = outageData.name;
+						countiesWithOutages++;
+					} else {
+						feature.properties.OutageCount = 0;
+						feature.properties.PercentAffected = 0;
+						feature.properties.CountyName = feature.properties.NAME || 'Unknown County';
+					}
+				});
+
+				console.debug(`US power outages loaded: ${countiesWithOutages} counties have active outages`);
+
+				// Add the merged GeoJSON to the map...
+				map.data.addGeoJson(countiesGeoJson);
+
+				// Color the county borders dynamically based on outage percentage...
+				map.data.setStyle(function(feature) {
+					let percentAffected = feature.getProperty('PercentAffected') || 0;
+					let strokeColor = "#0000002e";
+					let strokeOpacity = 0.1;
+					let fillColor = "transparent";
+					let fillOpacity = 0.0;
+
+					if (percentAffected > 0) {
+						strokeColor = "salmon";
+						fillColor = "red";
+						// Scale the fill opacity based on percentage (cap at 50% for visibility)
+						fillOpacity = Math.min(percentAffected / 100, 0.8);
+					}
+
+					return {
+						fillColor: fillColor,
+						fillOpacity: fillOpacity,
+						strokeWeight: 1.0,
+						strokeColor: strokeColor,
+						strokeOpacity: strokeOpacity
+					}
+				});
+
+				// Show county info on click...
+				addOverlayDataListener('click', function(event) {
+					const countyName = event.feature.getProperty('CountyName') || 'Unknown County';
+					const outageCount = event.feature.getProperty('OutageCount') || 0;
+					const percentAffected = event.feature.getProperty('PercentAffected') || 0;
+
+					// Calculate donut chart values (circumference = 2 * pi * 35 ~= 219.91)...
+					const circumference = 219.91;
+					const filledAmount = (percentAffected / 100) * circumference;
+					const donutCenterText = percentAffected > 0
+						? `${percentAffected.toFixed(1)}%`
+						: outageCount.toLocaleString();
+					const donutChart = `
+						<svg width="100" height="100" viewBox="0 0 100 100" style="display:block;margin:10px auto;">
+							<circle cx="50" cy="50" r="35" fill="none" stroke="#e0e0e0" stroke-width="12"/>
+							<circle cx="50" cy="50" r="35" fill="none" stroke="#dc3545" stroke-width="12"
+								stroke-dasharray="${filledAmount} ${circumference - filledAmount}"
+								stroke-linecap="round"
+								transform="rotate(-90 50 50)"/>
+							<text x="50" y="50" text-anchor="middle" dominant-baseline="middle"
+								font-size="16" font-weight="bold" fill="#333">${donutCenterText}</text>
+						</svg>
+					`;
+					const outageDetailText = percentAffected > 0
+						? `Customers Without Power: <strong>${outageCount.toLocaleString()}</strong> (${percentAffected.toFixed(1)}%)`
+						: `Meters Affected: <strong>${outageCount.toLocaleString()}</strong>`;
+					const dataSourceHtml = dataSource === 'usatoday'
+						? `<a href="https://data.usatoday.com/national-power-outage-map-tracker/" target="_blank" style="color:#0085c4; text-decoration: none;">USA Today</a>`
+						: (countyCustomerSources && countyCustomerSources.primary === 'usa_today'
+							? `Outages: <a href="https://odin.ornl.gov/" target="_blank" style="color:#0085c4; text-decoration: none;">ODIN (US DOE)</a>, totals: <a href="https://data.usatoday.com/national-power-outage-map-tracker/" target="_blank" style="color:#0085c4; text-decoration: none;">USA Today</a>`
+							: `Outages: <a href="https://odin.ornl.gov/" target="_blank" style="color:#0085c4; text-decoration: none;">ODIN (US DOE)</a>, totals: <a href="https://doi.org/10.6084/m9.figshare.24237376" target="_blank" style="color:#0085c4; text-decoration: none;">ORNL EAGLE-I</a>`);
+
+					// Set the content of the info window...
+					overlayInfoWindow.setContent(`
+						<div style="line-height:1.5;overflow:hidden;white-space:nowrap;color:#333;">
+							<h3 style="margin:0;">${countyName} Power Outages</h3>
+							${donutChart}
+							<p style="padding:5px 0;">
+								${outageDetailText}
+							</p>
+							<p style="font-size:11px; color:#777; margin: 0;">
+								Data source: ${dataSourceHtml}
+							</p>
+						</div>
+					`);
+
+					closeAllInfoWindows();
+					overlayInfoWindow.setPosition(event.latLng);
+					overlayInfoWindow.open(map);
+				});
+
+				// Highlight counties on mouseover...
+				addOverlayDataListener('mouseover', function(event) {
+					map.data.revertStyle();
+					map.data.overrideStyle(event.feature, {strokeWeight: 3, strokeOpacity: 0.5});
+				});
+				addOverlayDataListener('mouseout', function(event) {
+					map.data.revertStyle();
+				});
+
+			} catch (error) {
+				console.error(`Map ${widgetID}: Failed to fetch power outage data:`, error);
+			}
+		} else if (optionalMapType == "earthquakes") {
+			clearOverlayState();
+
+			try {
+			// Load the earthquake data for the past day from the USGS site...
+			// More info about this source of earthquake data can be found at: https://publicapis.io/usgs-earthquake-hazards-program-api
+			if (quakeMode == "time") {
+				await map.data.loadGeoJson(`https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson?ts=${Date.now()}`);
+			} else {
+				await map.data.loadGeoJson(`https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_day.geojson?ts=${Date.now()}`);
+			}
+			// Other options for different timeframes and magnitudes...
+			// map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson");
+			// await map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson");
+			// await map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson");
+			// await map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson");
+			// await map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_month.geojson");
+			console.debug("Earthquake data loaded");
+
+			// Style the earthquake markers...
+			// map.data.setStyle({ fillColor: 'red', strokeWeight: 1.0, strokeColor: 'salmon', icon: {url: quakeIcon, scaledSize: { width: 40, height: 40}, anchor: { x: 20, y: 20 } } });
+			map.data.setStyle(function(feature) {
+				let alertColor = "crimson";
+				let iconOpacity = 1.0;
+				// Set our minimum opacity...
+				iconOpacity = 0.5;
+
+				// Leaving logic here commented out for color-coding the icons based on PAGER alert color...
+				// alertColor = "gray";
+				// if (feature.getProperty('alert') != null) {
+				// 	alertColor = feature.getProperty('alert');
+				// 	if (alertColor == "green") {
+				// 		alertColor = "limegreen";
+				// 	} else if (alertColor == "yellow") {
+				// 		alertColor = "rgb(209 209 43)";
+				// 	};
+				// };
+
+				if (quakeMode == "time") {
+					// Leaving logic here commented out for changing the icon's opacity based on recency...
+					// Calculate the icon's opacity based on how recent the quake occurred (newer = more opaque)...
+					let now = new Date();
+					let quakeTime = new Date(feature.getProperty('time'));
+					// Calculate seconds since the quake occurred...
+					let timeDiff = now - quakeTime;
+					// Calculate a scale based on seconds in a day...
+					let timeScale = (86400 * 12) / timeDiff * 100;
+					// Change icon opacity based on age of the event...
+					if (timeScale > iconOpacity) {
+						iconOpacity = timeScale;
+					}
+				} else {
+					let mag = feature.getProperty("mag");
+					// We'll use magnitude 7 as a the top of our scale (i.e. mag 7 will be full opacity, with lesser being more faded)...
+					let magScale = 1 - ((7 - mag) / 10);
+					if (magScale > 0.5) {
+						iconOpacity = magScale;
+					}
+				}
+				// console.debug(`Opacity of ${feature.getProperty("place")} (mag ${feature.getProperty("mag")}): ${iconOpacity}`);
+
+				return {
+					icon: {url: buildEarthquakeIconUrl(iconOpacity, alertColor), scaledSize: { width: 40, height: 40}, anchor: { x: 20, y: 20 } },
+				}
+			});
+
+			// Show earthquake info on click...
+			addOverlayDataListener('click', async function(event) {
+				// Show an infowindow on click...
+				let quakeTime = new Date(event.feature.getProperty("time"));
+				let updated = new Date(event.feature.getProperty("updated"));
+				let alertLabel = "(not available)";
+				let alertLabelColor = "white";
+				if (event.feature.getProperty("alert") != null) {
+					alertLabelColor = event.feature.getProperty("alert");
+					alertLabel = event.feature.getProperty("alert").toUpperCase();
+					if (alertLabelColor == "green") {
+						alertLabelColor = "lawngreen";
+					}
+				}
+				let quakeAgeInDays = (new Date() - quakeTime) / (86400 * 1000);
+
+				// Fetch detail data first to get impact-link info for tsunami warning...
+				const detailUrl = event.feature.getProperty("detail");
+				let tsunamiWarningHtml = 'Tsunami risk';
+				let detailData = null;
+				if (detailUrl) {
+					try {
+						const detailResponse = await fetch(detailUrl);
+						detailData = await detailResponse.json();
+						// Look for impact-link products...
+						const impactLinks = (detailData && detailData.properties && detailData.properties.products && detailData.properties.products["impact-link"]);
+						if (impactLinks && impactLinks.length > 0) {
+							// Find the latest entry based on indexTime...
+							const latestImpactLink = impactLinks.reduce((latest, current) => {
+								const currentTime = (current.properties && current.properties.indexTime) || current.indexTime || 0;
+								const latestTime = (latest.properties && latest.properties.indexTime) || latest.indexTime || 0;
+								return (currentTime > latestTime) ? current : latest;
+							}, impactLinks[0]);
+							// Get text and url from the latest impact-link...
+							const impactText = (latestImpactLink.properties && latestImpactLink.properties.text) || latestImpactLink.text;
+							const impactUrl = (latestImpactLink.properties && latestImpactLink.properties.url) || latestImpactLink.url;
+							if (impactText && impactUrl) {
+								// tsunamiWarningHtml = `<a href="${impactUrl}" target="_blank" style="color: #333; text-decoration: underline;">${impactText}</a>`;
+								tsunamiWarningHtml = `<a href="${impactUrl}" title="View Tsunami details" target="_blank">Tsunami Risk</a>`;
+							}
+						}
+					} catch (err) {
+						console.debug("Could not load detail data for impact-link:", err.message);
+					}
+				}
+
+				overlayInfoWindow.setContent(`
+					<div style="line-height:1.35;overflow:hidden;white-space:nowrap;color:black;width:250px;">
+						<div>
+							<div style="font-weight:700;font-size: 1.2em;">Earthquake: Magnitude ${event.feature.getProperty("mag")}</div>
+							${event.feature.getProperty("place")}
+						</div>
+						<div style="margin: 12px 0; display: flex; flex-direction: column; gap: 12px; min-width: 220px;">
+							<!-- Magnitude Gauge (0-8) -->
+							<div style="display: flex; flex-direction: column; gap: 4px;">
+								<div style="display: flex; justify-content: space-between; align-items: baseline;">
+									<span style="font-size: 11px; font-weight: 600; color: #333; display: inline-flex; align-items: center; gap: 4px;">Magnitude<span title="Magnitude is a logarithmic measure of the size of an earthquake at its source." style="display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 50%; background: #888; color: white; font-size: 9px; font-weight: 700; cursor: help; font-style: italic; font-family: Georgia, serif;">i</span></span>
+									<span style="font-size: 14px; font-weight: 700; color: #333;">${event.feature.getProperty("mag").toFixed(1)}</span>
+								</div>
+								<div style="position: relative; height: 24px;">
+									<svg width="100%" height="24" viewBox="0 0 220 24" preserveAspectRatio="none">
+										<defs>
+											<linearGradient id="barGradientMag" x1="0%" y1="0%" x2="100%" y2="0%">
+												<stop offset="0%" style="stop-color:#c5e8eb"/>
+												<stop offset="50%" style="stop-color:#FFF9C4"/>
+												<stop offset="62.5%" style="stop-color:#FFEB3B"/>
+												<stop offset="75%" style="stop-color:#FF9800"/>
+												<stop offset="87.5%" style="stop-color:#FF5722"/>
+												<stop offset="100%" style="stop-color:#F44336"/>
+											</linearGradient>
+										</defs>
+										<!-- Background bar -->
+										<rect x="0" y="6" width="220" height="12" rx="6" fill="url(#barGradientMag)"/>
+									</svg>
+									<!-- Marker (HTML element to avoid SVG stretching) -->
+									<div class="quakeMarker" style="left: calc(${Math.min(100, Math.max(0, event.feature.getProperty("mag") / 8 * 100))}% - 14px);">
+										<div style="width: 4px; height: 4px; background: white; border-radius: 50%;"></div>
+									</div>
+								</div>
+								<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">
+									<span>0</span><span>2</span><span>4</span><span>6</span><span>8</span>
+								</div>
+							</div>
+							<!-- Significance Gauge (0-1000) -->
+							<div style="display: flex; flex-direction: column; gap: 4px;">
+								<div style="display: flex; justify-content: space-between; align-items: baseline;">
+									<span style="font-size: 11px; font-weight: 600; color: #333; display: inline-flex; align-items: center; gap: 4px;">Significance<span title="A quake's significance is determined on a number of factors, including: magnitude, maximum MMI, felt reports, and estimated impact." style="display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 50%; background: #888; color: white; font-size: 9px; font-weight: 700; cursor: help; font-style: italic; font-family: Georgia, serif;">i</span></span>
+									<span style="font-size: 14px; font-weight: 700; color: #333;">${(event.feature.getProperty("sig") || 0).toFixed(0)}</span>
+								</div>
+								<div style="position: relative; height: 24px;">
+									<svg width="100%" height="24" viewBox="0 0 220 24" preserveAspectRatio="none">
+										<defs>
+											<linearGradient id="barGradientSig" x1="0%" y1="0%" x2="100%" y2="0%">
+												<stop offset="0%" style="stop-color:#4CAF50"/>
+												<stop offset="37.5%" style="stop-color:#FFEB3B"/>
+												<stop offset="62.5%" style="stop-color:#FF9800"/>
+												<stop offset="100%" style="stop-color:#F44336"/>
+											</linearGradient>
+										</defs>
+										<!-- Background bar -->
+										<rect x="0" y="6" width="220" height="12" rx="6" fill="url(#barGradientSig)"/>
+									</svg>
+									<!-- Marker (HTML element to avoid SVG stretching) -->
+									<div class="quakeMarker" style="left: calc(${Math.min(100, Math.max(0, (event.feature.getProperty("sig") || 0) / 1000 * 100))}% - 14px);">
+										<div style="width: 4px; height: 4px; background: white; border-radius: 50%;"></div>
+									</div>
+								</div>
+								<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">
+									<span>0</span><span>250</span><span>500</span><span>750</span><span>1000</span>
+								</div>
+							</div>
+							<!-- Intensity Gauge (0-10, CDI) -->
+							<div style="display: flex; flex-direction: column; gap: 4px;">
+								<div style="display: flex; justify-content: space-between; align-items: baseline;">
+									<span style="font-size: 11px; font-weight: 600; color: #333; display: inline-flex; align-items: center; gap: 4px;">Intensity (MMI)<span title="This value is determined using the Modified Mercalli Intensity scale (MMI), which is a measure of the shaking intensity at a given location." style="display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 50%; background: #888; color: white; font-size: 9px; font-weight: 700; cursor: help; font-style: italic; font-family: Georgia, serif;">i</span></span>
+									<span style="font-size: 14px; font-weight: 700; color: #333;">${(event.feature.getProperty("cdi") || 0).toFixed(1)}</span>
+								</div>
+								<div style="position: relative; height: 24px;">
+									<svg width="100%" height="24" viewBox="0 0 220 24" preserveAspectRatio="none">
+										<defs>
+											<linearGradient id="barGradientInt" x1="0%" y1="0%" x2="100%" y2="0%">
+												<stop offset="0%" style="stop-color:#EEE"/>
+												<stop offset="25%" style="stop-color:#ACD8E9"/>
+												<stop offset="60%" style="stop-color:#FFEB3B"/>
+												<stop offset="75%" style="stop-color:#FF9800"/>
+												<stop offset="100%" style="stop-color:#F44336"/>
+											</linearGradient>
+										</defs>
+										<!-- Background bar -->
+										<rect x="0" y="6" width="220" height="12" rx="6" fill="url(#barGradientInt)"/>
+									</svg>
+									<!-- Marker (HTML element to avoid SVG stretching) -->
+									<div class="quakeMarker" style="left: calc(${Math.min(100, Math.max(0, (event.feature.getProperty("cdi") || 0) / 10 * 100))}% - 14px);">
+										<div style="width: 4px; height: 4px; background: white; border-radius: 50%;"></div>
+									</div>
+								</div>
+								<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">
+									<span>0</span><span>2.5</span><span>5</span><span>7.5</span><span>10</span>
+								</div>
+							</div>
+						</div>
+						${event.feature.getProperty("tsunami") === 1 && quakeAgeInDays < 1 ? buildTsunamiWarningBannerHtml(tsunamiWarningHtml) : ''}
+						<div style="margin: 15px 0; text-wrap: auto; line-height: 20px;">Current <a href="https://earthquake.usgs.gov/data/pager/onepager.php" target="_blank">USGS PAGER</a> Alert Level: <strong style="color: ${alertLabelColor}; background-color: black; padding: 5px; border-radius: 7px; font-size: 0.9em; white-space: nowrap;">${alertLabel}</strong></div>
+						<div style="font-size: 0.9em;">
+							<span style="font-weight: 500;">Detected:</span> ${quakeTime.toLocaleString()} <span style="font-size: 0.95em;">(${quakeAgeInDays.toFixed(1)} days ago)</span><br/>
+							<span style="font-weight: 500;">Updated:</span> ${updated.toLocaleString()}
+						</div>
+						<div style="margin: 15px 0 5px 0;">
+							<a href="${event.feature.getProperty("url")}" target="_blank" style="background-color: dodgerblue; padding: 3px 7px; border-radius: 5px; color: white; text-decoration: none; font-size: 1.15em; font-weight: 400; display: inline-flex; align-items: center; gap: 5px;">
+								<svg xmlns="http://www.w3.org/2000/svg" width="22" viewBox="0 0 640 640"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM288 224C288 206.3 302.3 192 320 192C337.7 192 352 206.3 352 224C352 241.7 337.7 256 320 256C302.3 256 288 241.7 288 224zM280 288L328 288C341.3 288 352 298.7 352 312L352 400L360 400C373.3 400 384 410.7 384 424C384 437.3 373.3 448 360 448L280 448C266.7 448 256 437.3 256 424C256 410.7 266.7 400 280 400L304 400L304 336L280 336C266.7 336 256 325.3 256 312C256 298.7 266.7 288 280 288z" fill="white"/></svg>
+								Earthquake details
+							</a>
+						</div>
+						</div>`
+				);
+
+				closeAllInfoWindows();
+				overlayInfoWindow.setPosition(event.latLng);
+				overlayInfoWindow.open(map);
+
+				// Display ShakeMap MMI contour lines using the already-fetched detail data...
+				// Clear any previous contour lines...
+				if (mmiContourLines) {
+					mmiContourLines.forEach(line => line.setMap(null));
+					mmiContourLines = [];
+				}
+				mmiContourLines = [];
+
+				// Use the already-fetched detailData for ShakeMap product...
+				if (detailData) {
+					try {
+						// Look for ShakeMap product with cont_mmi.json...
+						const shakemapProduct = (detailData && detailData.properties && detailData.properties.products && detailData.properties.products.shakemap && detailData.properties.products.shakemap[0]);
+						const contMmiUrl = (shakemapProduct && shakemapProduct.contents && shakemapProduct.contents["download/cont_mmi.json"] && shakemapProduct.contents["download/cont_mmi.json"].url);
+
+						if (contMmiUrl) {
+							const contMmiResponse = await fetch(contMmiUrl);
+							const contMmiData = await contMmiResponse.json();
+
+							// Find max and min MMI values for color scaling...
+							let maxMmi = 0;
+							let minMmi = Infinity;
+							contMmiData.features.forEach(feature => {
+								const mmi = feature.properties.value || 0;
+								if (mmi > maxMmi) maxMmi = mmi;
+								if (mmi < minMmi) minMmi = mmi;
+							});
+
+							// Add each contour line to the map with color based on MMI value...
+							contMmiData.features.forEach(feature => {
+								if (feature.geometry && feature.geometry.type === "MultiLineString") {
+									const mmi = feature.properties.value || 0;
+									// Calculate red intensity: higher MMI = stronger red (scale from light to dark red)
+									// MMI typically ranges from ~1 to 10
+									const intensity = Math.min(1, Math.max(0, (mmi - minMmi) / (maxMmi - minMmi)));
+									// Create gradient from light red (#ffcccc) to dark red (#8b0000)
+									const red = 255;
+									const green = Math.round(204 * (1 - intensity));
+									const blue = Math.round(204 * (1 - intensity));
+									const strokeColor = "rgb(" + red + ", " + green + ", " + blue + ")";
+									// Higher MMI = thicker, more opaque lines
+									const strokeWeight = 1 + intensity;
+									const strokeOpacity = 0.2 + (intensity * 0.5);
+
+									// MultiLineString has multiple line arrays
+									feature.geometry.coordinates.forEach(lineCoords => {
+										const path = lineCoords.map(coord => ({lat: coord[1], lng: coord[0]}));
+										const polyline = new google.maps.Polyline({
+											path: path,
+											strokeColor: strokeColor,
+											strokeOpacity: strokeOpacity,
+											strokeWeight: strokeWeight,
+											map: map
+										});
+										mmiContourLines.push(polyline);
+									});
+								}
+							});
+							console.debug("Loaded " + mmiContourLines.length + " MMI contour lines");
+						}
+					} catch (err) {
+						console.debug("Could not load ShakeMap MMI data:", err.message);
+					}
+				}
+			});
+			} catch (error) {
+				console.error(`Map ${widgetID}: Failed to load earthquake data:`, error);
+			}
+		} else if (optionalMapType == "us-flooding") {
+			// const countiesGeoJsonURL = `https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json?v=${Date.now()}`;
+			// const countyIDsJsonURL = `https://api.waterdata.usgs.gov/rtfi-api/counties?page=1&limit=4000&v=${Date.now()}`;
+			const floodingDataURL = `https://api.waterdata.usgs.gov/rtfi-api/referencepoints/flooding?v=${Date.now()}`;
+
+			clearOverlayState();
+
+			try {
+				// Fetch the flooding data from the USGS API...
+				// See https://api.waterdata.usgs.gov/rtfi-api/docs for more information on the API.
+				const floodingResponse = await fetch(floodingDataURL);
+				if (!floodingResponse.ok) {
+					throw new Error(`Flooding data fetch error: ${floodingResponse.status}`);
+				}
+				const floodingData = await floodingResponse.json();
+				console.debug(`Flooding data loaded: ${floodingData.length} sites currently flooding`);
+
+				// Convert flooding data to GeoJSON and add to the Data layer...
+				let floodingFeatureCount = 0;
+				floodingData.forEach(entry => {
+					if (entry.latitude && entry.longitude) {
+						map.data.addGeoJson({
+							type: "Feature",
+							geometry: {
+								type: "Point",
+								coordinates: [parseFloat(entry.longitude), parseFloat(entry.latitude)]
+							},
+							properties: entry  // Store all entry data as feature properties
+						});
+						floodingFeatureCount++;
+					}
+				});
+
+				// Apply styling to the flooding Data layer...
+				map.data.setStyle({
+					icon: {
+						path: google.maps.SymbolPath.CIRCLE,
+						fillColor: '#87ceeb9c',
+						fillOpacity: 0.9,
+						strokeColor: '#4682b496',
+						strokeWeight: 1.0,
+						scale: 5
+					}
+				});
+
+				addOverlayDataListener('click', function(event) {
+					const feature = event.feature;
+					// Extract properties from the feature...
+					const data = {
+						site_name: feature.getProperty('site_name'),
+						description: feature.getProperty('description'),
+						gage_height: feature.getProperty('gage_height'),
+						rp_elevation: feature.getProperty('rp_elevation'),
+						nwis_id: feature.getProperty('nwis_id')
+					}
+					overlayInfoWindow.setContent(`
+						<div style="line-height:1.5;color:#333;max-width:300px;overflow:visible;">
+							<h3 style="margin:0 0 8px 0;color:#4682B4;">${data.site_name || 'Unknown Site'}</h3>
+							<p style="margin:0;font-size:13px;">${data.description || 'No description available'}</p>
+							<div style="margin-top:12px;">
+								<div style="position:relative;width:100%;height:auto;">
+									${buildFloodingLevelChartHtml(data)}
+								</div>
+							</div>
+							<div style="margin: 30px 0 5px 0;">
+								<a href="https://waterdata.usgs.gov/monitoring-location/USGS-${data.nwis_id}/all-graphs/#period=P7D" target="_blank" style="background-color: dodgerblue; padding: 3px 7px; border-radius: 5px; color: white; text-decoration: none; font-size: 1.05em; font-weight: 400; display: inline-flex; align-items: center; gap: 5px;" title="View USGS monitoring station details">
+									<svg xmlns="http://www.w3.org/2000/svg" class="infoDialogIcon" viewBox="0 0 640 640"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path fill="white" d="M384 64C366.3 64 352 78.3 352 96C352 113.7 366.3 128 384 128L466.7 128L265.3 329.4C252.8 341.9 252.8 362.2 265.3 374.7C277.8 387.2 298.1 387.2 310.6 374.7L512 173.3L512 256C512 273.7 526.3 288 544 288C561.7 288 576 273.7 576 256L576 96C576 78.3 561.7 64 544 64L384 64zM144 160C99.8 160 64 195.8 64 240L64 496C64 540.2 99.8 576 144 576L400 576C444.2 576 480 540.2 480 496L480 416C480 398.3 465.7 384 448 384C430.3 384 416 398.3 416 416L416 496C416 504.8 408.8 512 400 512L144 512C135.2 512 128 504.8 128 496L128 240C128 231.2 135.2 224 144 224L224 224C241.7 224 256 209.7 256 192C256 174.3 241.7 160 224 160L144 160z"/></svg>
+									USGS monitoring station details
+								</a>
+							</div>
+						</div>
+					`);
+					closeAllInfoWindows();
+					overlayInfoWindow.setPosition(event.latLng);
+					overlayInfoWindow.open(map);
+				});
+			} catch (error) {
+				console.error(`Map ${widgetID}: Failed to fetch flooding data:`, error);
+			}
+		} else if (optionalMapType == "wafflehouse") {
+			clearOverlayState();
+
+			try {
+				const response = await fetch(wafflehouseDataUrl);
+				if (!response.ok) {
+					throw new Error(`Failed to load wafflehouse.json: ${response.status}`);
+				}
+
+				const waffleData = await response.json();
+				const waffleBounds = new google.maps.LatLngBounds();
+
+				console.debug(`Map ${widgetID}: Loaded ${waffleData.response.collection.length} Waffle House locations`);
+
+				waffleData.response.collection.forEach(store => {
+					const loc = store.location || {};
+					if (loc.latitude == null || loc.longitude == null || loc.latitude === "" || loc.longitude === "") return;
+
+					const lat = parseFloat(loc.latitude);
+					const lng = parseFloat(loc.longitude);
+					if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+					waffleBounds.extend({ lat: lat, lng: lng });
+
+					map.data.addGeoJson({
+						type: "Feature",
+						geometry: {
+							type: "Point",
+							coordinates: [lng, lat]
+						},
+						properties: {
+							name: store.name,
+							status: loc.opening_status,
+							address: loc.address1,
+							city: loc.city,
+							state: loc.state,
+							phone: loc.phone,
+							uid: store.uid
+						}
+					});
+				});
+
+				if (!waffleBounds.isEmpty()) {
+					map.fitBounds(waffleBounds);
+				}
+
+				map.data.setStyle(function(feature) {
+					const status = (feature.getProperty("status") || "").toLowerCase();
+					let fillColor = "#2ecc71";
+
+					switch (status) {
+						case "open":
+							fillColor = "#2ecc71";
+							break;
+						case "temporarily_closed":
+							fillColor = "#e74c3c";
+							break;
+						default:
+							fillColor = "#f1c40f";
+					}
+
+					return {
+						icon: {
+							path: google.maps.SymbolPath.CIRCLE,
+							fillColor: fillColor,
+							fillOpacity: 0.95,
+							strokeColor: "#ffffff",
+							strokeWeight: 1,
+							scale: 5
+						}
+					};
+				});
+
+				addOverlayDataListener("click", function(event) {
+					overlayInfoWindow.setContent(`
+						<div style="line-height:1.5;color:#333;max-width:260px;">
+							<h3 style="margin:0 0 8px 0;">${escapeHtml(event.feature.getProperty("name") || "Waffle House")}</h3>
+							<p><b>Status:</b> ${escapeHtml(event.feature.getProperty("status") || "unknown")}</p>
+							<p>
+								${escapeHtml(event.feature.getProperty("address") || "")}<br>
+								${escapeHtml(event.feature.getProperty("city") || "")}, ${escapeHtml(event.feature.getProperty("state") || "")}
+							</p>
+							<p>${escapeHtml(event.feature.getProperty("phone") || "")}</p>
+						</div>
+					`);
+					closeAllInfoWindows();
+					overlayInfoWindow.setPosition(event.latLng);
+					overlayInfoWindow.open(map);
+				});
+			} catch (error) {
+				console.error(`Map ${widgetID}: Failed to load Waffle House data:`, error);
+			}
+		} else {
+			clearOverlayState();
+		}
+	}
+}
+
+// Function to fit the map around a cluster's bounds...
+function fitClusterBounds(south, west, north, east) {
+	if (!isMapReady()) return;
+	closeAllInfoWindows();
+	map.fitBounds(new google.maps.LatLngBounds(
+		new google.maps.LatLng(south, west),
+		new google.maps.LatLng(north, east)
+	), {
+		top: 70,
+		right: 70,
+		bottom: 70,
+		left: 70
+	});
+}
+
+// Function called when the "Reset Zoom" button is pressed...
+function resetZoom() {
+	if (!isMapReady()) return;
+	if (markers.length > 0) {
+		// A single marker, or several stacked on one spot, gives bounds with no area. fitBounds on
+		// those zooms all the way to street level, so center on them at the map's opening zoom
+		// instead, which is what this function was always meant to do...
+		if (bounds.getNorthEast().equals(bounds.getSouthWest())) {
+			map.setCenter(bounds.getCenter());
+			map.setZoom(defaultMapZoom);
+		} else {
+			// Add padding to avoid markers appearing under the map's UI controls...
+			map.fitBounds(bounds, {
+				top: 70,
+				right: 70,
+				bottom: 70,
+				left: 70
+			});
+		}
+	}
+	// Reset the tilt & heading back to their original values...
+	mapTilt = defaultMapTilt;
+	mapHeading = defaultMapHeading;
+	map.setTilt(mapTilt);
+	map.setHeading(mapHeading);
+}
+
+// Function to capture presses of the Enter key in the 'Group Filter' field (without this the widget refreshes in an error)...
+function groupkeyHandler(e) {
+	updateResetGroupFilterButtonVisibility();
+	// Get the keycode of which key was pressed...
+	let key = e.keyCode || e.which;
+	// If the key was the Enter/Return key...
+	if (key == 13) {
+		// Stop the form from submitting...
+		e.preventDefault();
+		// Refresh the group data...
+		refreshGroupData();
+		saveGroupFilterToCookie();
+	}
+}
+
+// Function to show or hide the extra options row...
+function toggleMiscOptions() {
+	if (_dom.optionsToggleArea.style.display == "flex") {
+		_dom.optionsToggleArea.style.display = "none";
+		_dom.gearIcon.style.fill = "#aaa";
+		_dom.gearIconChevron.style.display = "none";
+	} else {
+		_dom.optionsToggleArea.style.display = "flex";
+		_dom.gearIcon.style.fill = "blue";
+		_dom.gearIconChevron.style.display = "block";
+	}
+}
+
+// Waiters for elements that have not appeared yet, tracked so teardown can release them...
+var _pendingElementWaiters = new Set();
+
+// Function to wait until an element exists in this widget instance...
+// Resolves with null if the widget is torn down before the element appears.
+function waitForElm(selector) {
+	return new Promise(resolve => {
+		const existing = getBetterMapScopedQuery(selector);
+		if (existing) {
+			return resolve(existing);
+		}
+
+		const waiter = { observer: null, resolve: resolve };
+		waiter.observer = new MutationObserver(mutations => {
+			const found = getBetterMapScopedQuery(selector);
+			if (!found) return;
+			_pendingElementWaiters.delete(waiter);
+			waiter.observer.disconnect();
+			resolve(found);
+		});
+		// Without this bookkeeping, a widget removed before the element rendered left a
+		// subtree observer running against the whole dashboard for the life of the page...
+		_pendingElementWaiters.add(waiter);
+
+		// If you get "parameter 1 is not of type 'Node'" error, see https://stackoverflow.com/a/77855838/492336
+		waiter.observer.observe(betterMapRoot || document.body, {
+			childList: true,
+			subtree: true
+		});
+	});
+}
+
+// Function to stop watching for elements that never appeared...
+function disconnectPendingElementWaiters() {
+	_pendingElementWaiters.forEach(waiter => {
+		try {
+			waiter.observer.disconnect();
+			waiter.resolve(null);
+		} catch (error) {}
+	});
+	_pendingElementWaiters.clear();
+}
+
+// Accessors this instance installed on window, so teardown can tell them apart from a newer one's...
+var _exposedStateProps = [];
+
+// Function to expose selected widget state for legacy integrations...
+function exposeBetterMapState(name, getValue, setValue) {
+	_exposedStateProps.push({ name: name, get: getValue });
+	Object.defineProperty(window, name, {
+		configurable: true,
+		get: getValue,
+		set: setValue
+	});
+}
+
+// Function to release the window references this instance installed...
+// Each one closes over this script's scope, so leaving them behind keeps the whole instance
+// (markers, group data, cached addresses) reachable after the widget is gone. Ownership is
+// checked by identity first so a newer instance's accessors are never removed.
+function releaseBetterMapWindowState() {
+	_exposedStateProps.forEach(prop => {
+		try {
+			const descriptor = Object.getOwnPropertyDescriptor(window, prop.name);
+			if (descriptor && descriptor.get === prop.get) {
+				delete window[prop.name];
+			}
+		} catch (error) {}
+	});
+	_exposedStateProps = [];
+	Object.keys(betterMapApi).forEach(key => {
+		try {
+			if (window[key] === betterMapApi[key]) {
+				delete window[key];
+			}
+		} catch (error) {}
+	});
+}
+
+// Function to clean up timers, markers, and event listeners before the widget is reloaded...
+function cleanupBetterMapInstance() {
+	clearInterval(weatherRefresher);
+	clearInterval(mapDataRefresher);
+	clearTimeout(_clearCacheMessageTimeout);
+	_clearCacheMessageTimeout = null;
+	cancelPendingMapInitialization();
+	cancelScheduledPolylineEndpointUpdate();
+	cancelPendingGeocodes();
+	// Queued debounced work would otherwise run against dead DOM after teardown...
+	debouncedSaveCache.cancel();
+	debouncedHandleMapOptionsAreaChange.cancel();
+	disconnectPendingElementWaiters();
+	document.removeEventListener("DOMContentLoaded", ensureMapInitialized);
+	if (_currentRefreshController && !_currentRefreshController.signal.aborted) {
+		_currentRefreshController.abort();
+	}
+	_currentRefreshController = null;
+	try {
+		clearAllMarkers();
+		clearAllPolylines();
+		_clusterIconCache.clear();
+		if (markerInfoWindow) {
+			markerInfoWindow.close();
+			markerInfoWindow = null;
+		}
+		if (clusterInfoWindow) {
+			clusterInfoWindow.close();
+			clusterInfoWindow = null;
+		}
+		if (map && map.data) {
+			clearOverlayState();
+		}
+	} catch (error) {
+		console.warn(`Map ${widgetID}: cleanup skipped some state:`, error);
+	}
+	destroyMapInstance();
+	if (typeof _visibilityObserver !== "undefined" && _visibilityObserver) {
+		_visibilityObserver.disconnect();
+	}
+	if (typeof _focusHandler !== "undefined") {
+		window.removeEventListener("focus", _focusHandler);
+	}
+	releaseBetterMapWindowState();
+}
+
+var betterMapApi = {
+	clearCache,
+	closeReleaseNotes,
+	enableWeather,
+	fitClusterBounds,
+	groupkeyHandler,
+	refreshGroupData,
+	resetGroupFilter,
+	resetZoom,
+	selectMapType,
+	showReleaseNotes,
+	toggleMiscOptions
+};
+
+if (betterMapInstance) {
+	betterMapInstance.api = betterMapApi;
+	betterMapInstance.cleanup = cleanupBetterMapInstance;
+}
+
+Object.assign(window, betterMapApi);
+
+exposeBetterMapState("clusterInfoWindow", function() { return clusterInfoWindow; }, function(value) { clusterInfoWindow = value; });
+exposeBetterMapState("map", function() { return map; }, function(value) { map = value; });
+exposeBetterMapState("markerInfoWindow", function() { return markerInfoWindow; }, function(value) { markerInfoWindow = value; });
+})();
