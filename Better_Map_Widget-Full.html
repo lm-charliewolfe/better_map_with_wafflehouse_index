@@ -6420,16 +6420,19 @@ if (window.RProfiler) {
 
 					try {
 
-						const response = await fetch("wafflehouse.json");
+						const response = await fetch(
+							"https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json"
+						);
+
 						if (!response.ok) {
 							throw new Error(`Failed to load wafflehouse.json: ${response.status}`);
 						}
 
-						const data = await response.json();
+						const waffleData = await response.json();
 
-						console.debug(`Loaded ${data.response.collection.length} Waffle House locations`);
+						console.debug(`Loaded ${waffleData.response.collection.length} Waffle House locations`);
 
-						data.response.collection.forEach(store => {
+						waffleData.response.collection.forEach(store => {
 
 							if (!store.location.latitude || !store.location.longitude) return;
 
@@ -6457,15 +6460,22 @@ if (window.RProfiler) {
 
 						map.data.setStyle(function (feature) {
 
-							const status = feature.getProperty("status");
+							const status = (feature.getProperty("status") || "").toLowerCase();
 
-							let fillColor = "#2ecc71";      // Open = Green
+							let fillColor = "#2ecc71"; // Open = Green
 
-							if (status === "temporarily_closed")
-								fillColor = "#e74c3c";      // Red
+							switch (status) {
+								case "open":
+									fillColor = "#2ecc71";
+									break;
 
-							if (status === "permanently_closed")
-								fillColor = "#f39c12";      // Orange
+								case "temporarily_closed":
+									fillColor = "#e74c3c";
+									break;
+
+								default:
+									fillColor = "#f1c40f";
+							}
 
 							return {
 								icon: {
