@@ -229,7 +229,7 @@ body {
 	align-items: center;
 	gap: 6px;
 }
-#weatherOptionsArea, #autoZoomOptions {
+#weatherOptionsArea, #eventsOptionsArea, #autoZoomOptions {
 	display: inline-flex;
 	flex-wrap: nowrap;
 	align-items: center;
@@ -253,8 +253,8 @@ body {
 	height: 30px;
 	border-radius: 5px;
 }
-#weatherOptions {
-	display: inline-flex;
+#weatherTypeOptions, #eventsOptions {
+	display: none;
 	gap: 6px;
 	margin: 3px 0 3px 5px;
 	align-items: center;
@@ -273,9 +273,20 @@ body {
 	align-items: center;
 	padding: 0 3px;
 }
-#additionalOverlayOptions {
-	display: inline-flex;
+#wafflehouseOptions {
+	display: none;
 	align-items: center;
+	gap: 4px;
+	margin: 3px 8px 3px 5px;
+	padding: 0 8px;
+	height: 30px;
+	border: 1px solid #ddd;
+	border-radius: 5px;
+	background-color: #fff7f7;
+	white-space: nowrap;
+}
+#additionalOverlayOptions {
+	display: none;
 }
 #markerStyleOptions {
 	display: inline-flex;

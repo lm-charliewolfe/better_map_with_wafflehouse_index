@@ -14,9 +14,10 @@
 // * Use hyphen-minus (-) instead of em/en dashes, straight ' and " for quotes, and ... for ellipsis.
 
 // ------------------------------------------------------------
-var version = "3.69 CDN + WHI";
+var version = "3.71 CDN + WHI";
 var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
 var wafflehouseHideOpen = false;
+var wafflehouseDataCache = null;
 var releaseNotes = `
 	<h2>Release Notes</h2>
 	<p>Latest releases can be found at <a href="https://github.com/logicmonitor/custom_widgets" target="_blank">https://github.com/logicmonitor/custom_widgets</a></p>
@@ -62,7 +63,8 @@ var releaseNotes = `
 	</ul>
 	<h3>Version 3.69 CDN + WHI</h3>
 	<ul>
-		<li>Added an optional "Waffle House Index" overlay (green = open, red = temporarily closed). Enable via the overlay dropdown or the MapOverlayOption dashboard token set to "wafflehouse". A "Hide open" option appears when this overlay is active to show only unexpectedly closed locations.</li>
+		<li>Split map overlays into separate Weather and Events toggles. Each has its own on/off checkbox; turning one off hides only that layer's dropdown.</li>
+		<li>Added an optional "Waffle House Index" overlay (green = open, red = temporarily closed). A "Hide open" checkbox appears in the top toolbar when this overlay is active.</li>
 	</ul>
 	<h3>Version 3.65</h3>
 	<ul>
@@ -503,6 +505,11 @@ betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
 				</span>
 			</span>
 
+			<span id="wafflehouseOptions" style="display: none;" data-title="Waffle House Index options">
+				<input type="checkbox" id="wafflehouseHideOpen" name="wafflehouseHideOpen" value="wafflehouseHideOpen" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshWafflehouseOverlay');" />
+				<label for="wafflehouseHideOpen">Hide open</label>
+			</span>
+
 			<span data-title="Toggle visibility of additional options">
 				<svg id="optionsToggleButton" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'toggleMiscOptions')" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="vertical-align: middle;"><path id="gearIcon" d="M495.9 166.6c3.2 8.7 .5 18.4-6.4 24.6l-43.3 39.4c1.1 8.3 1.7 16.8 1.7 25.4s-.6 17.1-1.7 25.4l43.3 39.4c6.9 6.2 9.6 15.9 6.4 24.6c-4.4 11.9-9.7 23.3-15.8 34.3l-4.7 8.1c-6.6 11-14 21.4-22.1 31.2c-5.9 7.2-15.7 9.6-24.5 6.8l-55.7-17.7c-13.4 10.3-28.2 18.9-44 25.4l-12.5 57.1c-2 9.1-9 16.3-18.2 17.8c-13.8 2.3-28 3.5-42.5 3.5s-28.7-1.2-42.5-3.5c-9.2-1.5-16.2-8.7-18.2-17.8l-12.5-57.1c-15.8-6.5-30.6-15.1-44-25.4L83.1 425.9c-8.8 2.8-18.6 .3-24.5-6.8c-8.1-9.8-15.5-20.2-22.1-31.2l-4.7-8.1c-6.1-11-11.4-22.4-15.8-34.3c-3.2-8.7-.5-18.4 6.4-24.6l43.3-39.4C64.6 273.1 64 264.6 64 256s.6-17.1 1.7-25.4L22.4 191.2c-6.9-6.2-9.6-15.9-6.4-24.6c4.4-11.9 9.7-23.3 15.8-34.3l4.7-8.1c6.6-11 14-21.4 22.1-31.2c5.9-7.2 15.7-9.6 24.5-6.8l55.7 17.7c13.4-10.3 28.2-18.9 44-25.4l12.5-57.1c2-9.1 9-16.3 18.2-17.8C227.3 1.2 241.5 0 256 0s28.7 1.2 42.5 3.5c9.2 1.5 16.2 8.7 18.2 17.8l12.5 57.1c15.8 6.5 30.6 15.1 44 25.4l55.7-17.7c8.8-2.8 18.6-.3 24.5 6.8c8.1 9.8 15.5 20.2 22.1 31.2l4.7 8.1c6.1 11 11.4 22.4 15.8 34.3zM256 336a80 80 0 1 0 0-160 80 80 0 1 0 0 160z" fill="#aaa"/></svg>
 			</span>
@@ -518,40 +525,36 @@ betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
 				</span>
 
 				<span id="weatherOptionsArea">
-					<span data-title="Enables overlay of current weather radar and more">
+					<span data-title="Show weather radar on the map">
 						<input type="checkbox" id="weather" name="weather" value="weather" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');" />
 						<label for="weather">Weather</label>
 					</span>
 
-					<span id="weatherOptions">
-						<span data-title="Which source to use for weather information">
-							<select id="weatherType" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
-								<option value="radar" selected>Global Radar</option>
-								<option value="nexrad-n0q-900913">US NEXRAD Radar</option>
-								<option value="xweather">Xweather Global Radar</option>
-								<option value="openweather">OpenWeather Radar</option>
-							</select>
-						</span>
+					<span id="weatherTypeOptions" data-title="Which source to use for weather radar">
+						<select id="weatherType" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
+							<option value="radar" selected>Global Radar</option>
+							<option value="nexrad-n0q-900913">US NEXRAD Radar</option>
+							<option value="xweather">Xweather Global Radar</option>
+							<option value="openweather">OpenWeather Radar</option>
+						</select>
+					</span>
+				</span>
 
-						<span id="additionalOverlayOptions">
-							<span data-title="Additional layer options to show on the map when weather is enabled">
-								<select id="otherWeatherOverlays" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
-									<option value="none">None</option>
-									<option value="earthquakes" selected>Earthquakes (mag 6+, 7d)</option>
-									<option value="us-flooding">US Flooding</option>
-									<option value="us-poweroutages">US Power Outages</option>
-									<option value="wildfires">Wildfires</option>
-									<option value="wafflehouse">Waffle House Index</option>
-								</select>
-							</span>
-						</span>
+				<span id="eventsOptionsArea">
+					<span data-title="Show event overlays such as earthquakes, flooding, or Waffle House Index">
+						<input type="checkbox" id="events" name="events" value="events" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');" />
+						<label for="events">Events</label>
+					</span>
 
-						<span id="wafflehouseOptions" style="display: none;">
-							<span data-title="Show only unexpectedly closed Waffle House locations (a sign of local disaster impact)">
-								<input type="checkbox" id="wafflehouseHideOpen" name="wafflehouseHideOpen" value="wafflehouseHideOpen" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshWafflehouseOverlay');" />
-								<label for="wafflehouseHideOpen">Hide open</label>
-							</span>
-						</span>
+					<span id="eventsOptions" data-title="Which event overlay to show on the map">
+						<select id="otherWeatherOverlays" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
+							<option value="none">None</option>
+							<option value="earthquakes" selected>Earthquakes (mag 6+, 7d)</option>
+							<option value="us-flooding">US Flooding</option>
+							<option value="us-poweroutages">US Power Outages</option>
+							<option value="wildfires">Wildfires</option>
+							<option value="wafflehouse">Waffle House Index</option>
+						</select>
 					</span>
 				</span>
 				<span id="markerStyleOptions">
@@ -863,6 +866,7 @@ var __LMBMW_MAPOPTS_ELEMENT_TO_KEY = {
 	showConnected: "showOnlyConnected",
 	autoZoom: "autoResetMapOnRefresh",
 	weather: "weather",
+	events: "events",
 	weatherType: "weatherType",
 	otherWeatherOverlays: "otherWeatherOverlays",
 	wafflehouseHideOpen: "wafflehouseHideOpen",
@@ -1020,6 +1024,9 @@ function applyPersistedMapOptionsFromCookie() {
 	if (typeof o.weather === "boolean") {
 		_dom.weather.checked = o.weather;
 	}
+	if (typeof o.events === "boolean") {
+		_dom.events.checked = o.events;
+	}
 	if (typeof o.weatherType === "string" && __LMBMW_ALLOWED_WEATHER_TYPES.indexOf(o.weatherType) >= 0) {
 		_dom.weatherType.value = o.weatherType;
 	}
@@ -1043,6 +1050,7 @@ function applyPersistedMapOptionsFromCookie() {
 			_dom.wafflehouseHideOpen.checked = o.wafflehouseHideOpen;
 		}
 	}
+	syncOverlayOptionsVisibility();
 	syncWafflehouseOptionsVisibility();
 }
 
@@ -1452,7 +1460,9 @@ var _dom = {
 	showConnectedLabel: getBetterMapElementById("showConnectedLabel"),
 	sidebarArea: getBetterMapElementById("sidebarArea"),
 	sidebarResizeHandle: getBetterMapElementById("sidebarResizeHandle"),
-	weatherOptions: getBetterMapElementById("weatherOptions"),
+	weatherTypeOptions: getBetterMapElementById("weatherTypeOptions"),
+	events: getBetterMapElementById("events"),
+	eventsOptions: getBetterMapElementById("eventsOptions"),
 	wafflehouseOptions: getBetterMapElementById("wafflehouseOptions"),
 	wafflehouseHideOpen: getBetterMapElementById("wafflehouseHideOpen"),
 	optionsToggleArea: getBetterMapElementById("optionsToggleArea"),
@@ -1512,6 +1522,9 @@ if (additionalOverlayOption == "none") {
 	_dom.otherWeatherOverlays.value = "wafflehouse";
 }
 
+_dom.events.checked = additionalOverlayOption !== "none";
+
+syncOverlayOptionsVisibility();
 syncWafflehouseOptionsVisibility();
 wafflehouseHideOpen = !!(_dom.wafflehouseHideOpen && _dom.wafflehouseHideOpen.checked);
 
@@ -4525,38 +4538,191 @@ function applyMarkerStyleFromSelect() {
 	}
 }
 
+// Function to show or hide overlay dropdowns based on Weather/Events toggles...
+function syncOverlayOptionsVisibility() {
+	if (_dom.weatherTypeOptions) {
+		_dom.weatherTypeOptions.style.display = _dom.weather.checked ? "inline-flex" : "none";
+	}
+	if (_dom.eventsOptions) {
+		_dom.eventsOptions.style.display = _dom.events.checked ? "inline-flex" : "none";
+	}
+}
+
 // Function to show Waffle House-only controls when that overlay is selected...
 function syncWafflehouseOptionsVisibility() {
-	if (!_dom.wafflehouseOptions || !_dom.otherWeatherOverlays) return;
-	const show = _dom.otherWeatherOverlays.value === "wafflehouse";
+	if (!_dom.wafflehouseOptions || !_dom.otherWeatherOverlays || !_dom.events) return;
+	const show = _dom.events.checked && _dom.otherWeatherOverlays.value === "wafflehouse";
 	_dom.wafflehouseOptions.style.display = show ? "inline-flex" : "none";
+}
+
+// Function to fetch and cache Waffle House location data...
+async function fetchWafflehouseData() {
+	if (wafflehouseDataCache) {
+		return wafflehouseDataCache;
+	}
+
+	const response = await fetch(wafflehouseDataUrl);
+	if (!response.ok) {
+		throw new Error(`Failed to load wafflehouse.json: ${response.status}`);
+	}
+
+	wafflehouseDataCache = await response.json();
+	return wafflehouseDataCache;
+}
+
+// Function to build Waffle House map features honoring the current filter...
+function buildWafflehouseFeatures(collection) {
+	const features = [];
+
+	collection.forEach(store => {
+		const loc = store.location || {};
+		if (loc.latitude == null || loc.longitude == null || loc.latitude === "" || loc.longitude === "") return;
+
+		const status = String(loc.opening_status || "").toLowerCase();
+		if (wafflehouseHideOpen && status !== "temporarily_closed") return;
+
+		const lat = parseFloat(loc.latitude);
+		const lng = parseFloat(loc.longitude);
+		if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+		features.push({
+			type: "Feature",
+			geometry: {
+				type: "Point",
+				coordinates: [lng, lat]
+			},
+			properties: {
+				name: store.name,
+				status: loc.opening_status,
+				address: loc.address1,
+				city: loc.city,
+				state: loc.state,
+				phone: loc.phone,
+				uid: store.uid
+			}
+		});
+	});
+
+	return features;
+}
+
+// Function to paint Waffle House locations on the map...
+async function loadWafflehouseOverlay() {
+	clearOverlayState();
+
+	const waffleData = await fetchWafflehouseData();
+	const collection = (waffleData && waffleData.response && waffleData.response.collection) || [];
+	const features = buildWafflehouseFeatures(collection);
+
+	console.debug(`Map ${widgetID}: Showing ${features.length} Waffle House locations (${collection.length} total)`);
+
+	if (!features.length) {
+		if (wafflehouseHideOpen) {
+			console.debug(`Map ${widgetID}: No unexpectedly closed Waffle House locations to display`);
+		}
+		return;
+	}
+
+	map.data.addGeoJson({
+		type: "FeatureCollection",
+		features: features
+	});
+
+	if (wafflehouseHideOpen) {
+		const waffleBounds = new google.maps.LatLngBounds();
+		features.forEach(feature => {
+			const coords = feature.geometry && feature.geometry.coordinates;
+			if (coords && coords.length >= 2) {
+				waffleBounds.extend({ lat: coords[1], lng: coords[0] });
+			}
+		});
+		if (!waffleBounds.isEmpty()) {
+			map.fitBounds(waffleBounds);
+		}
+	}
+
+	map.data.setStyle(function(feature) {
+		const status = (feature.getProperty("status") || "").toLowerCase();
+		let fillColor = "#2ecc71";
+
+		switch (status) {
+			case "open":
+				fillColor = "#2ecc71";
+				break;
+			case "temporarily_closed":
+				fillColor = "#e74c3c";
+				break;
+			default:
+				fillColor = "#f1c40f";
+		}
+
+		return {
+			icon: {
+				path: google.maps.SymbolPath.CIRCLE,
+				fillColor: fillColor,
+				fillOpacity: 0.95,
+				strokeColor: "#ffffff",
+				strokeWeight: 1,
+				scale: 5
+			}
+		};
+	});
+
+	addOverlayDataListener("click", function(event) {
+		overlayInfoWindow.setContent(`
+			<div style="line-height:1.5;color:#333;max-width:260px;">
+				<h3 style="margin:0 0 8px 0;">${escapeHtml(event.feature.getProperty("name") || "Waffle House")}</h3>
+				<p><b>Status:</b> ${escapeHtml(event.feature.getProperty("status") || "unknown")}</p>
+				<p>
+					${escapeHtml(event.feature.getProperty("address") || "")}<br>
+					${escapeHtml(event.feature.getProperty("city") || "")}, ${escapeHtml(event.feature.getProperty("state") || "")}
+				</p>
+				<p>${escapeHtml(event.feature.getProperty("phone") || "")}</p>
+			</div>
+		`);
+		closeAllInfoWindows();
+		overlayInfoWindow.setPosition(event.latLng);
+		overlayInfoWindow.open(map);
+	});
 }
 
 // Function to refresh the Waffle House overlay after filter changes...
 function refreshWafflehouseOverlay() {
 	wafflehouseHideOpen = !!(_dom.wafflehouseHideOpen && _dom.wafflehouseHideOpen.checked);
-	if (_dom.otherWeatherOverlays.value === "wafflehouse") {
-		addWeatherLayer();
+	if (_dom.events.checked && _dom.otherWeatherOverlays.value === "wafflehouse") {
+		loadWafflehouseOverlay().catch(error => {
+			console.error(`Map ${widgetID}: Failed to load Waffle House data:`, error);
+		});
 	}
 }
 
-// Function to enable the weather overlays when the appropriate checkbox is selected...
+// Function to enable weather and event overlays when their toggles change...
 function enableWeather() {
-	const wafflehouseOnly = _dom.otherWeatherOverlays.value === "wafflehouse";
-	if (_dom.weather.checked || wafflehouseOnly) {
-		_dom.weatherOptions.style.display = "inline-flex";
-		if (_dom.weather.checked) {
-			initWeather();
-		} else {
-			addWeatherLayer();
-		}
-	} else {
+	syncOverlayOptionsVisibility();
+
+	const weatherOn = _dom.weather.checked;
+	const eventsOn = _dom.events.checked;
+
+	if (!weatherOn) {
 		clearInterval(weatherRefresher);
 		weatherRefresher = null;
-		map.overlayMapTypes.clear();
-		clearOverlayState();
-		_dom.weatherOptions.style.display = "none";
 	}
+
+	if (!weatherOn && !eventsOn) {
+		if (map && map.overlayMapTypes) {
+			map.overlayMapTypes.clear();
+		}
+		clearOverlayState();
+		syncWafflehouseOptionsVisibility();
+		return;
+	}
+
+	if (weatherOn) {
+		initWeather();
+	} else {
+		addWeatherLayer();
+	}
+
 	syncWafflehouseOptionsVisibility();
 }
 
@@ -4578,15 +4744,18 @@ async function initWeather() {
 	addWeatherLayer();
 
 	clearInterval(weatherRefresher);
-	weatherRefresher = setInterval(async function() {
-		if (_dom.weatherType.value === "radar") {
-			try { await fetchRainViewerData(); } catch (error) {
-				console.error(`Map ${widgetID}: Failed to refresh weather data:`, error);
+	weatherRefresher = null;
+	if (_dom.weather.checked) {
+		weatherRefresher = setInterval(async function() {
+			if (_dom.weatherType.value === "radar") {
+				try { await fetchRainViewerData(); } catch (error) {
+					console.error(`Map ${widgetID}: Failed to refresh weather data:`, error);
+				}
 			}
-		}
-		addWeatherLayer();
-		console.log(`Map ${widgetID}: Weather maps refreshed.`);
-	}, weatherRefreshMinutes*1000*60);
+			addWeatherLayer();
+			console.log(`Map ${widgetID}: Weather maps refreshed.`);
+		}, weatherRefreshMinutes*1000*60);
+	}
 }
 
 // Function to get the latest radar frame from RainViewer...
@@ -4642,15 +4811,22 @@ function createWeatherTileLayer(name, getTileUrl, opts = {}) {
 // Function to add weather & other optional overlays to the map...
 async function addWeatherLayer() {
 	const optionalMapType = _dom.otherWeatherOverlays.value;
-	const wafflehouseOnly = optionalMapType === "wafflehouse";
+	const weatherOn = _dom.weather.checked;
+	const eventsOn = _dom.events.checked;
 
-	if (_dom.weather.checked || wafflehouseOnly) {
-		const mapType = _dom.weatherType.value;
-
-		try {
+	if (!weatherOn && !eventsOn) {
+		if (map && map.overlayMapTypes) {
 			map.overlayMapTypes.clear();
+		}
+		clearOverlayState();
+		return;
+	}
 
-			if (_dom.weather.checked && !wafflehouseOnly) {
+	try {
+		map.overlayMapTypes.clear();
+
+		if (weatherOn) {
+			const mapType = _dom.weatherType.value;
 			if (mapType == "radar") {
 				initRainViewerData();
 
@@ -4690,13 +4866,18 @@ async function addWeatherLayer() {
 					}, { maxZoom: 12 }));
 				}
 			}
-			}
-		} catch (error) {
-			console.error(`Map ${widgetID}: Error adding weather layer:`, error);
 		}
+	} catch (error) {
+		console.error(`Map ${widgetID}: Error adding weather layer:`, error);
+	}
 
-		// Look to see if we should add wildfire into the map...
-		if (optionalMapType == "wildfires") {
+	if (!eventsOn || optionalMapType === "none") {
+		clearOverlayState();
+		return;
+	}
+
+	// Look to see if we should add wildfire into the map...
+	if (optionalMapType == "wildfires") {
 			clearOverlayState();
 
 			// Load the wildfire data from the ArcGIS site...
@@ -5686,106 +5867,14 @@ async function addWeatherLayer() {
 				console.error(`Map ${widgetID}: Failed to fetch flooding data:`, error);
 			}
 		} else if (optionalMapType == "wafflehouse") {
-			clearOverlayState();
-
 			try {
-				const response = await fetch(wafflehouseDataUrl);
-				if (!response.ok) {
-					throw new Error(`Failed to load wafflehouse.json: ${response.status}`);
-				}
-
-				const waffleData = await response.json();
-				const waffleBounds = new google.maps.LatLngBounds();
-
-				console.debug(`Map ${widgetID}: Loaded ${waffleData.response.collection.length} Waffle House locations`);
-
-				waffleData.response.collection.forEach(store => {
-					const loc = store.location || {};
-					if (loc.latitude == null || loc.longitude == null || loc.latitude === "" || loc.longitude === "") return;
-
-					const status = String(loc.opening_status || "").toLowerCase();
-					if (wafflehouseHideOpen && status !== "temporarily_closed") return;
-
-					const lat = parseFloat(loc.latitude);
-					const lng = parseFloat(loc.longitude);
-					if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-					waffleBounds.extend({ lat: lat, lng: lng });
-
-					map.data.addGeoJson({
-						type: "Feature",
-						geometry: {
-							type: "Point",
-							coordinates: [lng, lat]
-						},
-						properties: {
-							name: store.name,
-							status: loc.opening_status,
-							address: loc.address1,
-							city: loc.city,
-							state: loc.state,
-							phone: loc.phone,
-							uid: store.uid
-						}
-					});
-				});
-
-				if (!waffleBounds.isEmpty()) {
-					map.fitBounds(waffleBounds);
-				} else if (wafflehouseHideOpen) {
-					console.debug(`Map ${widgetID}: No unexpectedly closed Waffle House locations to display`);
-				}
-
-				map.data.setStyle(function(feature) {
-					const status = (feature.getProperty("status") || "").toLowerCase();
-					let fillColor = "#2ecc71";
-
-					switch (status) {
-						case "open":
-							fillColor = "#2ecc71";
-							break;
-						case "temporarily_closed":
-							fillColor = "#e74c3c";
-							break;
-						default:
-							fillColor = "#f1c40f";
-					}
-
-					return {
-						icon: {
-							path: google.maps.SymbolPath.CIRCLE,
-							fillColor: fillColor,
-							fillOpacity: 0.95,
-							strokeColor: "#ffffff",
-							strokeWeight: 1,
-							scale: 5
-						}
-					};
-				});
-
-				addOverlayDataListener("click", function(event) {
-					overlayInfoWindow.setContent(`
-						<div style="line-height:1.5;color:#333;max-width:260px;">
-							<h3 style="margin:0 0 8px 0;">${escapeHtml(event.feature.getProperty("name") || "Waffle House")}</h3>
-							<p><b>Status:</b> ${escapeHtml(event.feature.getProperty("status") || "unknown")}</p>
-							<p>
-								${escapeHtml(event.feature.getProperty("address") || "")}<br>
-								${escapeHtml(event.feature.getProperty("city") || "")}, ${escapeHtml(event.feature.getProperty("state") || "")}
-							</p>
-							<p>${escapeHtml(event.feature.getProperty("phone") || "")}</p>
-						</div>
-					`);
-					closeAllInfoWindows();
-					overlayInfoWindow.setPosition(event.latLng);
-					overlayInfoWindow.open(map);
-				});
+				await loadWafflehouseOverlay();
 			} catch (error) {
 				console.error(`Map ${widgetID}: Failed to load Waffle House data:`, error);
 			}
 		} else {
 			clearOverlayState();
 		}
-	}
 }
 
 // Function to fit the map around a cluster's bounds...
