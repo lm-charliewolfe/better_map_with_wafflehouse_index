@@ -1,0 +1,180 @@
+<!--
+	Waffle House Index Map (standalone)
+	Paste this entire file into a LogicMonitor Text widget (Source view).
+
+	Requirements:
+	* LogicMonitor portal with Google Maps enabled (uses parent.LMGlobalData.googleMapInfo.key)
+	* wafflehouse.json hosted at the URL below
+-->
+<style type="text/css">
+	html, body {
+		margin: 0;
+		padding: 0;
+		width: 100%;
+		height: 100%;
+		min-height: 500px;
+	}
+	#whMap {
+		width: 100%;
+		height: 100%;
+		min-height: 480px;
+	}
+	#whStatus {
+		position: absolute;
+		top: 8px;
+		left: 8px;
+		z-index: 2;
+		background: rgba(255, 255, 255, 0.92);
+		border: 1px solid #ccc;
+		border-radius: 6px;
+		padding: 6px 10px;
+		font: 12px/1.4 system-ui, sans-serif;
+		color: #333;
+	}
+</style>
+
+<div id="whStatus">Loading Waffle House Index...</div>
+<div id="whMap">&nbsp;</div>
+
+<script>
+(function () {
+	var DATA_URL = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
+	var statusEl = document.getElementById("whStatus");
+	var mapEl = document.getElementById("whMap");
+	var map = null;
+	var infoWindow = null;
+
+	function setStatus(text) {
+		if (statusEl) statusEl.textContent = text;
+	}
+
+	function statusColor(status) {
+		var s = String(status || "").toLowerCase();
+		if (s === "open") return "#2ecc71";
+		if (s === "temporarily_closed") return "#e74c3c";
+		return "#f1c40f";
+	}
+
+	function loadGoogleMaps() {
+		var key = parent.LMGlobalData.googleMapInfo.key.toString();
+		if (typeof google !== "undefined" && google.maps && typeof google.maps.importLibrary === "function") {
+			return Promise.resolve();
+		}
+		return new Promise(function (resolve, reject) {
+			(g => { var h, a, k, s, p = "The Google Maps JavaScript API", c = "google", l = "importLibrary", q = "__ib__", m = document, b = window; b = b[c] || (b[c] = {}); var d = b.maps || (b.maps = {}), r = new Set, e = new URLSearchParams, u = () => h || (h = new Promise(async (f, n) => { await (a = m.createElement("script")); e.set("libraries", [...r] + ""); for (k in g) e.set(k.replace(/[A-Z]/g, t => "_" + t[0].toLowerCase()), g[k]); e.set("callback", c + ".maps." + q); a.src = `https://maps.${c}apis.com/maps/api/js?` + e; d[q] = f; a.onerror = () => h = n(Error(p + " could not load.")); a.nonce = (s = m.querySelector("script[nonce]")) && s.nonce || ""; m.head.append(a) })); d[l] ? console.warn(p + " only loads once. Ignoring:", g) : d[l] = (f, ...n) => r.add(f) && u().then(() => d[l](f, ...n)) })
+				({ key: key, v: "weekly" });
+			var tries = 0;
+			var timer = setInterval(function () {
+				tries++;
+				if (typeof google !== "undefined" && google.maps && typeof google.maps.importLibrary === "function") {
+					clearInterval(timer);
+					resolve();
+				} else if (tries > 100) {
+					clearInterval(timer);
+					reject(new Error("Google Maps failed to load"));
+				}
+			}, 100);
+		});
+	}
+
+	async function initMap() {
+		await google.maps.importLibrary("maps");
+		map = new google.maps.Map(mapEl, {
+			zoom: 4,
+			center: { lat: 33.75, lng: -84.39 },
+			mapTypeControl: false,
+			streetViewControl: false,
+			fullscreenControl: true
+		});
+		infoWindow = new google.maps.InfoWindow();
+	}
+
+	async function loadStores() {
+		var response = await fetch(DATA_URL);
+		if (!response.ok) {
+			throw new Error("Could not load data (" + response.status + ")");
+		}
+		var data = await response.json();
+		var stores = (data && data.response && data.response.collection) || [];
+		var bounds = new google.maps.LatLngBounds();
+		var openCount = 0;
+		var closedCount = 0;
+		var plotted = 0;
+
+		stores.forEach(function (store) {
+			var loc = store.location || {};
+			var lat = parseFloat(loc.latitude);
+			var lng = parseFloat(loc.longitude);
+			if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+			var status = String(loc.opening_status || "").toLowerCase();
+			if (status === "open") openCount++;
+			if (status === "temporarily_closed") closedCount++;
+
+			bounds.extend({ lat: lat, lng: lng });
+			plotted++;
+
+			var marker = new google.maps.Marker({
+				map: map,
+				position: { lat: lat, lng: lng },
+				title: store.name || "Waffle House",
+				icon: {
+					path: google.maps.SymbolPath.CIRCLE,
+					fillColor: statusColor(status),
+					fillOpacity: 0.95,
+					strokeColor: "#ffffff",
+					strokeWeight: 1,
+					scale: 5
+				}
+			});
+
+			marker.addListener("click", function () {
+				infoWindow.setContent(
+					'<div style="line-height:1.5;color:#333;max-width:260px;">' +
+					'<h3 style="margin:0 0 8px 0;">' + (store.name || "Waffle House") + '</h3>' +
+					'<p><b>Status:</b> ' + (loc.opening_status || "unknown") + '</p>' +
+					'<p>' + (loc.address1 || "") + '<br>' + (loc.city || "") + ', ' + (loc.state || "") + '</p>' +
+					'</div>'
+				);
+				infoWindow.open(map, marker);
+			});
+		});
+
+		if (plotted > 0) {
+			map.fitBounds(bounds);
+		}
+
+		setStatus(
+			plotted + " locations | " +
+			openCount + " open | " +
+			closedCount + " temporarily closed"
+		);
+	}
+
+	function waitForSize() {
+		return new Promise(function (resolve) {
+			var tries = 0;
+			var timer = setInterval(function () {
+				var rect = mapEl.getBoundingClientRect();
+				tries++;
+				if (rect.width > 0 && rect.height > 0) {
+					clearInterval(timer);
+					resolve();
+				} else if (tries > 50) {
+					clearInterval(timer);
+					resolve();
+				}
+			}, 100);
+		});
+	}
+
+	loadGoogleMaps()
+		.then(waitForSize)
+		.then(initMap)
+		.then(loadStores)
+		.catch(function (err) {
+			console.error(err);
+			setStatus("Error: " + (err && err.message ? err.message : String(err)));
+		});
+})();
+</script>
