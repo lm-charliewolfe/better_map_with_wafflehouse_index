@@ -16,6 +16,7 @@
 // ------------------------------------------------------------
 var version = "3.69 CDN + WHI";
 var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
+var wafflehouseHideOpen = false;
 var releaseNotes = `
 	<h2>Release Notes</h2>
 	<p>Latest releases can be found at <a href="https://github.com/logicmonitor/custom_widgets" target="_blank">https://github.com/logicmonitor/custom_widgets</a></p>
@@ -61,7 +62,7 @@ var releaseNotes = `
 	</ul>
 	<h3>Version 3.69 CDN + WHI</h3>
 	<ul>
-		<li>Added an optional "Waffle House Index" overlay (green = open, red = temporarily closed). Enable via the overlay dropdown or the MapOverlayOption dashboard token set to "wafflehouse".</li>
+		<li>Added an optional "Waffle House Index" overlay (green = open, red = temporarily closed). Enable via the overlay dropdown or the MapOverlayOption dashboard token set to "wafflehouse". A "Hide open" option appears when this overlay is active to show only unexpectedly closed locations.</li>
 	</ul>
 	<h3>Version 3.65</h3>
 	<ul>
@@ -544,6 +545,13 @@ betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
 								</select>
 							</span>
 						</span>
+
+						<span id="wafflehouseOptions" style="display: none;">
+							<span data-title="Show only unexpectedly closed Waffle House locations (a sign of local disaster impact)">
+								<input type="checkbox" id="wafflehouseHideOpen" name="wafflehouseHideOpen" value="wafflehouseHideOpen" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshWafflehouseOverlay');" />
+								<label for="wafflehouseHideOpen">Hide open</label>
+							</span>
+						</span>
 					</span>
 				</span>
 				<span id="markerStyleOptions">
@@ -857,6 +865,7 @@ var __LMBMW_MAPOPTS_ELEMENT_TO_KEY = {
 	weather: "weather",
 	weatherType: "weatherType",
 	otherWeatherOverlays: "otherWeatherOverlays",
+	wafflehouseHideOpen: "wafflehouseHideOpen",
 	markerStyleSelect: "markerStyle",
 };
 
@@ -1028,6 +1037,13 @@ function applyPersistedMapOptionsFromCookie() {
 	_dom.customGroupFilterField.value = groupPathFilter;
 	syncMapTypeRadiosFromSourceType();
 	updateResetGroupFilterButtonVisibility();
+	if (typeof o.wafflehouseHideOpen === "boolean") {
+		wafflehouseHideOpen = o.wafflehouseHideOpen;
+		if (_dom.wafflehouseHideOpen) {
+			_dom.wafflehouseHideOpen.checked = o.wafflehouseHideOpen;
+		}
+	}
+	syncWafflehouseOptionsVisibility();
 }
 
 // Function to show or hide the group filter reset button...
@@ -1437,6 +1453,8 @@ var _dom = {
 	sidebarArea: getBetterMapElementById("sidebarArea"),
 	sidebarResizeHandle: getBetterMapElementById("sidebarResizeHandle"),
 	weatherOptions: getBetterMapElementById("weatherOptions"),
+	wafflehouseOptions: getBetterMapElementById("wafflehouseOptions"),
+	wafflehouseHideOpen: getBetterMapElementById("wafflehouseHideOpen"),
 	optionsToggleArea: getBetterMapElementById("optionsToggleArea"),
 	gearIcon: getBetterMapElementById("gearIcon"),
 	gearIconChevron: getBetterMapElementById("gearIconChevron"),
@@ -1493,6 +1511,9 @@ if (additionalOverlayOption == "none") {
 } else if (additionalOverlayOption == "wafflehouse") {
 	_dom.otherWeatherOverlays.value = "wafflehouse";
 }
+
+syncWafflehouseOptionsVisibility();
+wafflehouseHideOpen = !!(_dom.wafflehouseHideOpen && _dom.wafflehouseHideOpen.checked);
 
 _dom.markerStyleSelect.value = markerStyle === "circles" ? "circles" : "pins";
 _dom.markerStyleSelect.addEventListener("change", applyMarkerStyleFromSelect);
@@ -4504,6 +4525,21 @@ function applyMarkerStyleFromSelect() {
 	}
 }
 
+// Function to show Waffle House-only controls when that overlay is selected...
+function syncWafflehouseOptionsVisibility() {
+	if (!_dom.wafflehouseOptions || !_dom.otherWeatherOverlays) return;
+	const show = _dom.otherWeatherOverlays.value === "wafflehouse";
+	_dom.wafflehouseOptions.style.display = show ? "inline-flex" : "none";
+}
+
+// Function to refresh the Waffle House overlay after filter changes...
+function refreshWafflehouseOverlay() {
+	wafflehouseHideOpen = !!(_dom.wafflehouseHideOpen && _dom.wafflehouseHideOpen.checked);
+	if (_dom.otherWeatherOverlays.value === "wafflehouse") {
+		addWeatherLayer();
+	}
+}
+
 // Function to enable the weather overlays when the appropriate checkbox is selected...
 function enableWeather() {
 	const wafflehouseOnly = _dom.otherWeatherOverlays.value === "wafflehouse";
@@ -4521,6 +4557,7 @@ function enableWeather() {
 		clearOverlayState();
 		_dom.weatherOptions.style.display = "none";
 	}
+	syncWafflehouseOptionsVisibility();
 }
 
 // Function to fetch the latest weather map data from RainViewer's API...
@@ -5666,6 +5703,9 @@ async function addWeatherLayer() {
 					const loc = store.location || {};
 					if (loc.latitude == null || loc.longitude == null || loc.latitude === "" || loc.longitude === "") return;
 
+					const status = String(loc.opening_status || "").toLowerCase();
+					if (wafflehouseHideOpen && status !== "temporarily_closed") return;
+
 					const lat = parseFloat(loc.latitude);
 					const lng = parseFloat(loc.longitude);
 					if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -5692,6 +5732,8 @@ async function addWeatherLayer() {
 
 				if (!waffleBounds.isEmpty()) {
 					map.fitBounds(waffleBounds);
+				} else if (wafflehouseHideOpen) {
+					console.debug(`Map ${widgetID}: No unexpectedly closed Waffle House locations to display`);
 				}
 
 				map.data.setStyle(function(feature) {
@@ -5948,6 +5990,7 @@ var betterMapApi = {
 	fitClusterBounds,
 	groupkeyHandler,
 	refreshGroupData,
+	refreshWafflehouseOverlay,
 	resetGroupFilter,
 	resetZoom,
 	selectMapType,
