@@ -14,7 +14,7 @@
 // * Use hyphen-minus (-) instead of em/en dashes, straight ' and " for quotes, and ... for ellipsis.
 
 // ------------------------------------------------------------
-var version = "3.76 CDN + WHI";
+var version = "3.77 CDN + WHI";
 var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
 var wafflehouseHideOpen = false;
 var wafflehouseDataCache = null;
@@ -61,6 +61,10 @@ var releaseNotes = `
 		<li>Fixed the &quot;Force refresh the map data&quot; button performing a partial (differential) refresh instead of a full rebuild.</li>
 		<li>Fixed the map not re-fitting its zoom reliably after a toolbar filter change.</li>
 		<li>Fixed duplicate refresh timers and orphaned Google Map instances that could accumulate when the widget was saved while the map was still initializing.</li>
+	</ul>
+	<h3>Version 3.77 CDN + WHI</h3>
+	<ul>
+		<li>Updated closed Waffle House pin icon: transparent background, tight crop, sized to match wildfire marker scale (36×40).</li>
 	</ul>
 	<h3>Version 3.76 CDN + WHI</h3>
 	<ul>
@@ -315,8 +319,8 @@ function getWafflehouseClosedIconStyle() {
 	if (!wafflehouseClosedIconSpec) {
 		wafflehouseClosedIconSpec = {
 			url: getBetterMapWidgetAssetBase() + "icons/closed-wafflehouse.png",
-			scaledSize: new google.maps.Size(40, 40),
-			anchor: new google.maps.Point(20, 40)
+			scaledSize: new google.maps.Size(36, 40),
+			anchor: new google.maps.Point(18, 40)
 		};
 	}
 	return wafflehouseClosedIconSpec;
