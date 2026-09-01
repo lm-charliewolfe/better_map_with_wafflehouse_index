@@ -15,7 +15,6 @@
 
 // ------------------------------------------------------------
 var version = "3.78 CDN + WHI";
-var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
 var wafflehouseHideOpen = false;
 var wafflehouseDataCache = null;
 var wafflehouseClosedIconSpec = null;
@@ -4711,7 +4710,7 @@ async function fetchWafflehouseData() {
 		return wafflehouseDataCache;
 	}
 
-	const response = await fetch(wafflehouseDataUrl);
+	const response = await fetch(getBetterMapWidgetAssetBase() + "data/wafflehouse.json");
 	if (!response.ok) {
 		throw new Error(`Failed to load wafflehouse.json: ${response.status}`);
 	}
