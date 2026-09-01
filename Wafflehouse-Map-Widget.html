@@ -19,11 +19,15 @@
 		height: 100%;
 		min-height: 480px;
 	}
-	#whStatus {
+	#whToolbar {
 		position: absolute;
 		top: 8px;
 		left: 8px;
 		z-index: 2;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 10px;
 		background: rgba(255, 255, 255, 0.92);
 		border: 1px solid #ccc;
 		border-radius: 6px;
@@ -31,18 +35,34 @@
 		font: 12px/1.4 system-ui, sans-serif;
 		color: #333;
 	}
+	#whHideOpenOptions {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding-left: 8px;
+		border-left: 1px solid #ddd;
+	}
 </style>
 
-<div id="whStatus">Loading Waffle House Index...</div>
+<div id="whToolbar">
+	<span id="whStatus">Loading Waffle House Index...</span>
+	<span id="whHideOpenOptions">
+		<input type="checkbox" id="whHideOpen" />
+		<label for="whHideOpen">Hide open</label>
+	</span>
+</div>
 <div id="whMap">&nbsp;</div>
 
 <script>
 (function () {
 	var DATA_URL = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
 	var statusEl = document.getElementById("whStatus");
+	var hideOpenEl = document.getElementById("whHideOpen");
 	var mapEl = document.getElementById("whMap");
 	var map = null;
 	var infoWindow = null;
+	var storeData = null;
+	var markers = [];
 
 	function setStatus(text) {
 		if (statusEl) statusEl.textContent = text;
@@ -53,6 +73,13 @@
 		if (s === "open") return "#2ecc71";
 		if (s === "temporarily_closed") return "#e74c3c";
 		return "#f1c40f";
+	}
+
+	function clearMarkers() {
+		markers.forEach(function (marker) {
+			marker.setMap(null);
+		});
+		markers = [];
 	}
 
 	function loadGoogleMaps() {
@@ -89,17 +116,26 @@
 		infoWindow = new google.maps.InfoWindow();
 	}
 
-	async function loadStores() {
+	async function fetchStores() {
+		if (storeData) return storeData;
 		var response = await fetch(DATA_URL);
 		if (!response.ok) {
 			throw new Error("Could not load data (" + response.status + ")");
 		}
-		var data = await response.json();
+		storeData = await response.json();
+		return storeData;
+	}
+
+	function plotStores() {
+		var data = storeData;
 		var stores = (data && data.response && data.response.collection) || [];
+		var hideOpen = !!(hideOpenEl && hideOpenEl.checked);
 		var bounds = new google.maps.LatLngBounds();
 		var openCount = 0;
 		var closedCount = 0;
 		var plotted = 0;
+
+		clearMarkers();
 
 		stores.forEach(function (store) {
 			var loc = store.location || {};
@@ -110,6 +146,7 @@
 			var status = String(loc.opening_status || "").toLowerCase();
 			if (status === "open") openCount++;
 			if (status === "temporarily_closed") closedCount++;
+			if (hideOpen && status !== "temporarily_closed") return;
 
 			bounds.extend({ lat: lat, lng: lng });
 			plotted++;
@@ -138,17 +175,27 @@
 				);
 				infoWindow.open(map, marker);
 			});
+
+			markers.push(marker);
 		});
 
-		if (plotted > 0) {
+		if (plotted > 0 && hideOpen) {
 			map.fitBounds(bounds);
+		} else if (plotted > 0 && !hideOpen) {
+			map.setCenter({ lat: 33.75, lng: -84.39 });
+			map.setZoom(4);
 		}
 
 		setStatus(
-			plotted + " locations | " +
+			plotted + " shown | " +
 			openCount + " open | " +
 			closedCount + " temporarily closed"
 		);
+	}
+
+	async function loadStores() {
+		await fetchStores();
+		plotStores();
 	}
 
 	function waitForSize() {
@@ -165,6 +212,12 @@
 					resolve();
 				}
 			}, 100);
+		});
+	}
+
+	if (hideOpenEl) {
+		hideOpenEl.addEventListener("change", function () {
+			if (storeData) plotStores();
 		});
 	}
 
