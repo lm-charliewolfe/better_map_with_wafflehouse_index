@@ -14,7 +14,7 @@
 // * Use hyphen-minus (-) instead of em/en dashes, straight ' and " for quotes, and ... for ellipsis.
 
 // ------------------------------------------------------------
-var version = "3.75 CDN + WHI";
+var version = "3.76 CDN + WHI";
 var wafflehouseDataUrl = "https://raw.githubusercontent.com/lm-charliewolfe/better_map_with_wafflehouse_index/main/wafflehouse.json";
 var wafflehouseHideOpen = false;
 var wafflehouseDataCache = null;
@@ -61,6 +61,10 @@ var releaseNotes = `
 		<li>Fixed the &quot;Force refresh the map data&quot; button performing a partial (differential) refresh instead of a full rebuild.</li>
 		<li>Fixed the map not re-fitting its zoom reliably after a toolbar filter change.</li>
 		<li>Fixed duplicate refresh timers and orphaned Google Map instances that could accumulate when the widget was saved while the map was still initializing.</li>
+	</ul>
+	<h3>Version 3.76 CDN + WHI</h3>
+	<ul>
+		<li>Events overlay picker is now a multi-select; choose one or more event layers at once. "Hide open" moved next to the Events picker inside the gear menu.</li>
 	</ul>
 	<h3>Version 3.75 CDN + WHI</h3>
 	<ul>
@@ -534,11 +538,6 @@ betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
 				</span>
 			</span>
 
-			<span id="wafflehouseOptions" style="display: none;" data-title="Waffle House Index options">
-				<input type="checkbox" id="wafflehouseHideOpen" name="wafflehouseHideOpen" value="wafflehouseHideOpen" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshWafflehouseOverlay');" />
-				<label for="wafflehouseHideOpen">Hide open</label>
-			</span>
-
 			<span data-title="Toggle visibility of additional options">
 				<svg id="optionsToggleButton" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'toggleMiscOptions')" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="vertical-align: middle;"><path id="gearIcon" d="M495.9 166.6c3.2 8.7 .5 18.4-6.4 24.6l-43.3 39.4c1.1 8.3 1.7 16.8 1.7 25.4s-.6 17.1-1.7 25.4l43.3 39.4c6.9 6.2 9.6 15.9 6.4 24.6c-4.4 11.9-9.7 23.3-15.8 34.3l-4.7 8.1c-6.6 11-14 21.4-22.1 31.2c-5.9 7.2-15.7 9.6-24.5 6.8l-55.7-17.7c-13.4 10.3-28.2 18.9-44 25.4l-12.5 57.1c-2 9.1-9 16.3-18.2 17.8c-13.8 2.3-28 3.5-42.5 3.5s-28.7-1.2-42.5-3.5c-9.2-1.5-16.2-8.7-18.2-17.8l-12.5-57.1c-15.8-6.5-30.6-15.1-44-25.4L83.1 425.9c-8.8 2.8-18.6 .3-24.5-6.8c-8.1-9.8-15.5-20.2-22.1-31.2l-4.7-8.1c-6.1-11-11.4-22.4-15.8-34.3c-3.2-8.7-.5-18.4 6.4-24.6l43.3-39.4C64.6 273.1 64 264.6 64 256s.6-17.1 1.7-25.4L22.4 191.2c-6.9-6.2-9.6-15.9-6.4-24.6c4.4-11.9 9.7-23.3 15.8-34.3l4.7-8.1c6.6-11 14-21.4 22.1-31.2c5.9-7.2 15.7-9.6 24.5-6.8l55.7 17.7c13.4-10.3 28.2-18.9 44-25.4l12.5-57.1c2-9.1 9-16.3 18.2-17.8C227.3 1.2 241.5 0 256 0s28.7 1.2 42.5 3.5c9.2 1.5 16.2 8.7 18.2 17.8l12.5 57.1c15.8 6.5 30.6 15.1 44 25.4l55.7-17.7c8.8-2.8 18.6-.3 24.5 6.8c8.1 9.8 15.5 20.2 22.1 31.2l4.7 8.1c6.1 11 11.4 22.4 15.8 34.3zM256 336a80 80 0 1 0 0-160 80 80 0 1 0 0 160z" fill="#aaa"/></svg>
 			</span>
@@ -575,15 +574,19 @@ betterMapRoot.innerHTML = `<!-- Create our options bar above the map... -->
 						<label for="events">Events</label>
 					</span>
 
-					<span id="eventsOptions" data-title="Which event overlay to show on the map">
-						<select id="otherWeatherOverlays" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
-							<option value="none">None</option>
+					<span id="eventsOptions" data-title="Choose one or more event overlays (Ctrl+click or Cmd+click for multiple)">
+						<select id="otherWeatherOverlays" multiple size="5" onchange="betterMapWidgetCall('${betterMapInstanceId}', 'enableWeather');">
 							<option value="earthquakes" selected>Earthquakes (mag 6+, 7d)</option>
 							<option value="us-flooding">US Flooding</option>
 							<option value="us-poweroutages">US Power Outages</option>
 							<option value="wildfires">Wildfires</option>
 							<option value="wafflehouse">Waffle House Index</option>
 						</select>
+					</span>
+
+					<span id="wafflehouseOptions" style="display: none;" data-title="Show only unexpectedly closed Waffle House locations">
+						<input type="checkbox" id="wafflehouseHideOpen" name="wafflehouseHideOpen" value="wafflehouseHideOpen" onclick="betterMapWidgetCall('${betterMapInstanceId}', 'refreshWafflehouseOverlay');" />
+						<label for="wafflehouseHideOpen">Hide open</label>
 					</span>
 				</span>
 
@@ -1009,15 +1012,35 @@ function syncMapTypeRadiosFromSourceType() {
 	_dom.radioResources.checked = mapSourceType !== "groups" && mapSourceType !== "services";
 }
 
+// Function to read which event overlays are selected in the multi-select...
+function getSelectedEventOverlays() {
+	if (!_dom.otherWeatherOverlays) return [];
+	return Array.from(_dom.otherWeatherOverlays.selectedOptions)
+		.map(function(option) { return option.value; })
+		.filter(function(value) { return __LMBMW_ALLOWED_OVERLAY_VALUES.indexOf(value) >= 0 && value !== "none"; });
+}
+
+// Function to set which event overlays are selected in the multi-select...
+function setSelectedEventOverlays(values) {
+	if (!_dom.otherWeatherOverlays) return;
+	const allowed = Array.isArray(values)
+		? values.filter(function(value) { return __LMBMW_ALLOWED_OVERLAY_VALUES.indexOf(value) >= 0 && value !== "none"; })
+		: [];
+	Array.from(_dom.otherWeatherOverlays.options).forEach(function(option) {
+		option.selected = allowed.indexOf(option.value) >= 0;
+	});
+	syncAdditionalOverlayVarFromSelect();
+}
+
+// Function to check whether a specific event overlay is selected...
+function isEventOverlaySelected(overlayType) {
+	return getSelectedEventOverlays().indexOf(overlayType) >= 0;
+}
+
 // Function to sync the selected overlay back to the overlay variable...
 function syncAdditionalOverlayVarFromSelect() {
-	const v = _dom.otherWeatherOverlays.value;
-	if (v === "none") additionalOverlayOption = "none";
-	else if (v === "wildfires") additionalOverlayOption = "wildfires";
-	else if (v === "us-poweroutages") additionalOverlayOption = "us-poweroutages";
-	else if (v === "earthquakes") additionalOverlayOption = "earthquakes";
-	else if (v === "us-flooding") additionalOverlayOption = "us-flooding";
-	else if (v === "wafflehouse") additionalOverlayOption = "wafflehouse";
+	const selected = getSelectedEventOverlays();
+	additionalOverlayOption = selected.length ? selected[0] : "none";
 }
 
 // Function to apply saved toolbar options from the dashboard cookie...
@@ -1046,10 +1069,12 @@ function applyPersistedMapOptionsFromCookie() {
 		mapSourceType = o.mapSourceType;
 	}
 
-	if (typeof o.otherWeatherOverlays === "string" && __LMBMW_ALLOWED_OVERLAY_VALUES.indexOf(o.otherWeatherOverlays) >= 0) {
-		_dom.otherWeatherOverlays.value = o.otherWeatherOverlays;
-		if (o.otherWeatherOverlays === "us-poweroutages") additionalOverlayOption = "us-poweroutages";
-		else additionalOverlayOption = o.otherWeatherOverlays;
+	if (typeof o.otherWeatherOverlays === "string") {
+		if (o.otherWeatherOverlays.indexOf(",") >= 0) {
+			setSelectedEventOverlays(o.otherWeatherOverlays.split(",").map(function(v) { return v.trim(); }).filter(Boolean));
+		} else if (__LMBMW_ALLOWED_OVERLAY_VALUES.indexOf(o.otherWeatherOverlays) >= 0) {
+			setSelectedEventOverlays(o.otherWeatherOverlays === "none" ? [] : [o.otherWeatherOverlays]);
+		}
 	}
 	if (typeof o.weather === "boolean") {
 		_dom.weather.checked = o.weather;
@@ -1104,7 +1129,8 @@ function getMapOptionValueForElement(el) {
 	}
 	if (el.id === "otherWeatherOverlays") {
 		syncAdditionalOverlayVarFromSelect();
-		return el.value;
+		const selected = getSelectedEventOverlays();
+		return selected.length ? selected.join(",") : "none";
 	}
 	if (el.type === "checkbox") return el.checked;
 	if (el.tagName === "SELECT") return el.value;
@@ -1539,20 +1565,22 @@ if (openweatherOption && !openWeatherAPIKey) {
 }
 
 if (additionalOverlayOption == "none") {
-	_dom.otherWeatherOverlays.value = "none";
+	setSelectedEventOverlays([]);
 } else if (additionalOverlayOption == "wildfires") {
-	_dom.otherWeatherOverlays.value = "wildfires";
+	setSelectedEventOverlays(["wildfires"]);
 } else if (additionalOverlayOption == "outages" || additionalOverlayOption == "us-poweroutages") {
-	_dom.otherWeatherOverlays.value = "us-poweroutages";
+	setSelectedEventOverlays(["us-poweroutages"]);
 } else if (additionalOverlayOption == "earthquakes") {
-	_dom.otherWeatherOverlays.value = "earthquakes";
+	setSelectedEventOverlays(["earthquakes"]);
 } else if (additionalOverlayOption == "us-flooding") {
-	_dom.otherWeatherOverlays.value = "us-flooding";
+	setSelectedEventOverlays(["us-flooding"]);
 } else if (additionalOverlayOption == "wafflehouse") {
-	_dom.otherWeatherOverlays.value = "wafflehouse";
+	setSelectedEventOverlays(["wafflehouse"]);
+} else {
+	setSelectedEventOverlays(["earthquakes"]);
 }
 
-_dom.events.checked = additionalOverlayOption !== "none";
+_dom.events.checked = getSelectedEventOverlays().length > 0;
 
 syncOverlayOptionsVisibility();
 syncWafflehouseOptionsVisibility();
@@ -4581,7 +4609,7 @@ function syncOverlayOptionsVisibility() {
 // Function to show Waffle House-only controls when that overlay is selected...
 function syncWafflehouseOptionsVisibility() {
 	if (!_dom.wafflehouseOptions || !_dom.otherWeatherOverlays || !_dom.events) return;
-	const show = _dom.events.checked && _dom.otherWeatherOverlays.value === "wafflehouse";
+	const show = _dom.events.checked && isEventOverlaySelected("wafflehouse");
 	_dom.wafflehouseOptions.style.display = show ? "inline-flex" : "none";
 }
 
@@ -4628,7 +4656,8 @@ function buildWafflehouseFeatures(collection) {
 				city: loc.city,
 				state: loc.state,
 				phone: loc.phone,
-				uid: store.uid
+				uid: store.uid,
+				_overlayType: "wafflehouse"
 			}
 		});
 	});
@@ -4636,10 +4665,107 @@ function buildWafflehouseFeatures(collection) {
 	return features;
 }
 
+// Function to style all active event overlay features at once...
+function applyCombinedOverlayDataStyle() {
+	if (!map || !map.data) return;
+
+	map.data.setStyle(function(feature) {
+		const overlayType = feature.getProperty("_overlayType");
+
+		if (overlayType === "wildfires") {
+			return { fillColor: "red", strokeWeight: 1.0, strokeColor: "salmon" };
+		}
+
+		if (overlayType === "us-poweroutages") {
+			const percentAffected = feature.getProperty("PercentAffected") || 0;
+			let strokeColor = "#0000002e";
+			let strokeOpacity = 0.1;
+			let fillColor = "transparent";
+			let fillOpacity = 0.0;
+
+			if (percentAffected > 0) {
+				strokeColor = "salmon";
+				fillColor = "red";
+				fillOpacity = Math.min(percentAffected / 100, 0.8);
+			}
+
+			return {
+				fillColor: fillColor,
+				fillOpacity: fillOpacity,
+				strokeWeight: 1.0,
+				strokeColor: strokeColor,
+				strokeOpacity: strokeOpacity
+			};
+		}
+
+		if (overlayType === "earthquakes") {
+			const alertColor = "crimson";
+			let iconOpacity = 0.5;
+
+			if (quakeMode == "time") {
+				const now = new Date();
+				const quakeTime = new Date(feature.getProperty("time"));
+				const timeDiff = now - quakeTime;
+				const timeScale = (86400 * 12) / timeDiff * 100;
+				if (timeScale > iconOpacity) {
+					iconOpacity = timeScale;
+				}
+			} else {
+				const mag = feature.getProperty("mag");
+				const magScale = 1 - ((7 - mag) / 10);
+				if (magScale > 0.5) {
+					iconOpacity = magScale;
+				}
+			}
+
+			return {
+				icon: {
+					url: buildEarthquakeIconUrl(iconOpacity, alertColor),
+					scaledSize: { width: 40, height: 40 },
+					anchor: { x: 20, y: 20 }
+				}
+			};
+		}
+
+		if (overlayType === "us-flooding") {
+			return {
+				icon: {
+					path: google.maps.SymbolPath.CIRCLE,
+					fillColor: "#87ceeb9c",
+					fillOpacity: 0.9,
+					strokeColor: "#4682b496",
+					strokeWeight: 1.0,
+					scale: 5
+				}
+			};
+		}
+
+		if (overlayType === "wafflehouse") {
+			const status = (feature.getProperty("status") || "").toLowerCase();
+
+			if (status === "temporarily_closed") {
+				return { icon: getWafflehouseClosedIconStyle() };
+			}
+
+			const fillColor = status === "open" ? "#2ecc71" : "#f1c40f";
+			return {
+				icon: {
+					path: google.maps.SymbolPath.CIRCLE,
+					fillColor: fillColor,
+					fillOpacity: 0.95,
+					strokeColor: "#ffffff",
+					strokeWeight: 1,
+					scale: 5
+				}
+			};
+		}
+
+		return null;
+	});
+}
+
 // Function to paint Waffle House locations on the map...
 async function loadWafflehouseOverlay() {
-	clearOverlayState();
-
 	const waffleData = await fetchWafflehouseData();
 	const collection = (waffleData && waffleData.response && waffleData.response.collection) || [];
 	const features = buildWafflehouseFeatures(collection);
@@ -4671,33 +4797,8 @@ async function loadWafflehouseOverlay() {
 		}
 	}
 
-	map.data.setStyle(function(feature) {
-		const status = (feature.getProperty("status") || "").toLowerCase();
-
-		if (status === "temporarily_closed") {
-			return { icon: getWafflehouseClosedIconStyle() };
-		}
-
-		let fillColor = "#2ecc71";
-		if (status === "open") {
-			fillColor = "#2ecc71";
-		} else {
-			fillColor = "#f1c40f";
-		}
-
-		return {
-			icon: {
-				path: google.maps.SymbolPath.CIRCLE,
-				fillColor: fillColor,
-				fillOpacity: 0.95,
-				strokeColor: "#ffffff",
-				strokeWeight: 1,
-				scale: 5
-			}
-		};
-	});
-
 	addOverlayDataListener("click", function(event) {
+		if (event.feature.getProperty("_overlayType") !== "wafflehouse") return;
 		overlayInfoWindow.setContent(`
 			<div style="line-height:1.5;color:#333;max-width:260px;">
 				<h3 style="margin:0 0 8px 0;">${escapeHtml(event.feature.getProperty("name") || "Waffle House")}</h3>
@@ -4718,10 +4819,8 @@ async function loadWafflehouseOverlay() {
 // Function to refresh the Waffle House overlay after filter changes...
 function refreshWafflehouseOverlay() {
 	wafflehouseHideOpen = !!(_dom.wafflehouseHideOpen && _dom.wafflehouseHideOpen.checked);
-	if (_dom.events.checked && _dom.otherWeatherOverlays.value === "wafflehouse") {
-		loadWafflehouseOverlay().catch(error => {
-			console.error(`Map ${widgetID}: Failed to load Waffle House data:`, error);
-		});
+	if (_dom.events.checked && isEventOverlaySelected("wafflehouse")) {
+		addWeatherLayer();
 	}
 }
 
@@ -4839,7 +4938,7 @@ function createWeatherTileLayer(name, getTileUrl, opts = {}) {
 
 // Function to add weather & other optional overlays to the map...
 async function addWeatherLayer() {
-	const optionalMapType = _dom.otherWeatherOverlays.value;
+	const selectedEvents = getSelectedEventOverlays();
 	const weatherOn = _dom.weather.checked;
 	const eventsOn = _dom.events.checked;
 
@@ -4900,14 +4999,17 @@ async function addWeatherLayer() {
 		console.error(`Map ${widgetID}: Error adding weather layer:`, error);
 	}
 
-	if (!eventsOn || optionalMapType === "none") {
+	if (!eventsOn || !selectedEvents.length) {
 		clearOverlayState();
 		return;
 	}
 
+	clearOverlayState();
+
+	for (const optionalMapType of selectedEvents) {
+
 	// Look to see if we should add wildfire into the map...
 	if (optionalMapType == "wildfires") {
-			clearOverlayState();
 
 			// Load the wildfire data from the ArcGIS site...
 			// More info about this source of active US wildfire data can be found at: https://www.arcgis.com/home/item.html?id=d957997ccee7408287a963600a77f61f
@@ -4931,40 +5033,38 @@ async function addWeatherLayer() {
 			}
 
 			// Fetch both US and Australian wildfire data in parallel...
-			Promise.all([
+			try {
+			const [usData, auData] = await Promise.all([
 				fetch(usWildfireUrl).then(response => response.ok ? response.json() : null).catch(() => null),
 				fetch(auWildfireUrl).then(response => response.ok ? response.json() : null).catch(() => null)
-			]).then(([usData, auData]) => {
-				// Tag features with source and namespace the IDs to prevent collisions when merged...
-				if (usData && usData.features) {
-					usData.features.forEach(feature => {
-						feature.properties = feature.properties || {};
-						feature.properties._fireSource = 'US';
-						if (feature.id != null) feature.id = 'US_' + feature.id;
-					});
-					console.debug(`US wildfires loaded: ${usData.features.length} features`);
-				}
-				if (auData && auData.features) {
-					auData.features.forEach(feature => {
-						feature.properties = feature.properties || {};
-						feature.properties._fireSource = 'AU';
-						if (feature.id != null) feature.id = 'AU_' + feature.id;
-					});
-					console.debug(`Australian bushfires loaded: ${auData.features.length} features`);
-				}
+			]);
 
-				// Merge all wildfire data into a single FeatureCollection and add to map...
-				const combined = mergeGeoJson(usData, auData);
-				if (combined.features.length > 0) {
-					map.data.addGeoJson(combined);
-					console.debug(`Total wildfire features plotted: ${combined.features.length}`);
-				}
-			}).catch(error => {
-				console.error(`Map ${widgetID}: Error loading wildfire data:`, error);
-			});
+			// Tag features with source and namespace the IDs to prevent collisions when merged...
+			if (usData && usData.features) {
+				usData.features.forEach(feature => {
+					feature.properties = feature.properties || {};
+					feature.properties._fireSource = "US";
+					feature.properties._overlayType = "wildfires";
+					if (feature.id != null) feature.id = "US_" + feature.id;
+				});
+				console.debug(`US wildfires loaded: ${usData.features.length} features`);
+			}
+			if (auData && auData.features) {
+				auData.features.forEach(feature => {
+					feature.properties = feature.properties || {};
+					feature.properties._fireSource = "AU";
+					feature.properties._overlayType = "wildfires";
+					if (feature.id != null) feature.id = "AU_" + feature.id;
+				});
+				console.debug(`Australian bushfires loaded: ${auData.features.length} features`);
+			}
 
-			// Color the wildfire areas as red...
-			map.data.setStyle({ fillColor: 'red', strokeWeight: 1.0, strokeColor: 'salmon' });
+			// Merge all wildfire data into a single FeatureCollection and add to map...
+			const combined = mergeGeoJson(usData, auData);
+			if (combined.features.length > 0) {
+				map.data.addGeoJson(combined);
+				console.debug(`Total wildfire features plotted: ${combined.features.length}`);
+			}
 
 			// Wildfire info popup helpers...
 			const WILDFIRE_FLAME_SVG = `<svg width="36" height="40" viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;" role="img" aria-label="Wildfire with smoke">
@@ -5067,6 +5167,7 @@ async function addWeatherLayer() {
 
 			// Show wildfire info on either "click" or "mouseover" (refer to the 'showWildfireInfoEvent' variable set at the top of this script)...
 			addOverlayDataListener(showWildfireInfoEvent, function(event) {
+				if (event.feature.getProperty("_overlayType") !== "wildfires") return;
 				const fireSource = event.feature.getProperty("_fireSource");
 				let infoContent = '';
 
@@ -5131,12 +5232,16 @@ async function addWeatherLayer() {
 				overlayInfoWindow.open(map);
 			});
 			if (showWildfireInfoEvent == "mouseover") {
-				addOverlayDataListener('mouseout', function(event) {
+				addOverlayDataListener("mouseout", function(event) {
+					if (event.feature.getProperty("_overlayType") !== "wildfires") return;
 					overlayInfoWindow.close();
 				});
 			}
+			} catch (error) {
+				console.error(`Map ${widgetID}: Error loading wildfire data:`, error);
+			}
 		// Look to see if we should add power outages to the map...
-		} else if (optionalMapType == "us-poweroutages") {
+		} if (optionalMapType == "us-poweroutages") {
 			// ODIN county outage API (CORS-enabled, ~30KB). Primary source since USA Today's
 			// ~6.8MB JS feed cannot be fetched directly from the browser and public CORS
 			// proxies now return 522/408 timeouts against data.usatoday.com.
@@ -5390,8 +5495,6 @@ async function addWeatherLayer() {
 			}
 
 			try {
-				clearOverlayState();
-
 				// Fetch counties, outage data (ODIN/USA Today), and bundled customer totals...
 				const [countiesGeoJson, outageResult, countyCustomerData] = await Promise.all([
 					getCountiesGeoJson(),
@@ -5417,6 +5520,8 @@ async function addWeatherLayer() {
 				countiesGeoJson.features.forEach(feature => {
 					const fips = feature.id; // plotly dataset uses 'id' for FIPS code
 					const outageData = outageDataByFips[fips];
+					feature.properties = feature.properties || {};
+					feature.properties._overlayType = "us-poweroutages";
 
 					if (outageData) {
 						feature.properties.OutageCount = outageData.outageCount;
@@ -5435,33 +5540,10 @@ async function addWeatherLayer() {
 				// Add the merged GeoJSON to the map...
 				map.data.addGeoJson(countiesGeoJson);
 
-				// Color the county borders dynamically based on outage percentage...
-				map.data.setStyle(function(feature) {
-					let percentAffected = feature.getProperty('PercentAffected') || 0;
-					let strokeColor = "#0000002e";
-					let strokeOpacity = 0.1;
-					let fillColor = "transparent";
-					let fillOpacity = 0.0;
-
-					if (percentAffected > 0) {
-						strokeColor = "salmon";
-						fillColor = "red";
-						// Scale the fill opacity based on percentage (cap at 50% for visibility)
-						fillOpacity = Math.min(percentAffected / 100, 0.8);
-					}
-
-					return {
-						fillColor: fillColor,
-						fillOpacity: fillOpacity,
-						strokeWeight: 1.0,
-						strokeColor: strokeColor,
-						strokeOpacity: strokeOpacity
-					}
-				});
-
 				// Show county info on click...
-				addOverlayDataListener('click', function(event) {
-					const countyName = event.feature.getProperty('CountyName') || 'Unknown County';
+				addOverlayDataListener("click", function(event) {
+					if (event.feature.getProperty("_overlayType") !== "us-poweroutages") return;
+					const countyName = event.feature.getProperty("CountyName") || "Unknown County";
 					const outageCount = event.feature.getProperty('OutageCount') || 0;
 					const percentAffected = event.feature.getProperty('PercentAffected') || 0;
 
@@ -5510,86 +5592,39 @@ async function addWeatherLayer() {
 					overlayInfoWindow.open(map);
 				});
 
-				// Highlight counties on mouseover...
-				addOverlayDataListener('mouseover', function(event) {
-					map.data.revertStyle();
+				addOverlayDataListener("mouseover", function(event) {
+					if (event.feature.getProperty("_overlayType") !== "us-poweroutages") return;
 					map.data.overrideStyle(event.feature, {strokeWeight: 3, strokeOpacity: 0.5});
 				});
-				addOverlayDataListener('mouseout', function(event) {
+				addOverlayDataListener("mouseout", function(event) {
+					if (event.feature.getProperty("_overlayType") !== "us-poweroutages") return;
 					map.data.revertStyle();
 				});
 
 			} catch (error) {
 				console.error(`Map ${widgetID}: Failed to fetch power outage data:`, error);
 			}
-		} else if (optionalMapType == "earthquakes") {
-			clearOverlayState();
+		} if (optionalMapType == "earthquakes") {
 
 			try {
-			// Load the earthquake data for the past day from the USGS site...
-			// More info about this source of earthquake data can be found at: https://publicapis.io/usgs-earthquake-hazards-program-api
-			if (quakeMode == "time") {
-				await map.data.loadGeoJson(`https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson?ts=${Date.now()}`);
-			} else {
-				await map.data.loadGeoJson(`https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_day.geojson?ts=${Date.now()}`);
+			const eqUrl = quakeMode == "time"
+				? `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson?ts=${Date.now()}`
+				: `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_day.geojson?ts=${Date.now()}`;
+			const eqResponse = await fetch(eqUrl);
+			if (!eqResponse.ok) {
+				throw new Error(`Earthquake data fetch error: ${eqResponse.status}`);
 			}
-			// Other options for different timeframes and magnitudes...
-			// map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson");
-			// await map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson");
-			// await map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson");
-			// await map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson");
-			// await map.data.loadGeoJson("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_month.geojson");
+			const eqData = await eqResponse.json();
+			(eqData.features || []).forEach(feature => {
+				feature.properties = feature.properties || {};
+				feature.properties._overlayType = "earthquakes";
+			});
+			map.data.addGeoJson(eqData);
 			console.debug("Earthquake data loaded");
 
-			// Style the earthquake markers...
-			// map.data.setStyle({ fillColor: 'red', strokeWeight: 1.0, strokeColor: 'salmon', icon: {url: quakeIcon, scaledSize: { width: 40, height: 40}, anchor: { x: 20, y: 20 } } });
-			map.data.setStyle(function(feature) {
-				let alertColor = "crimson";
-				let iconOpacity = 1.0;
-				// Set our minimum opacity...
-				iconOpacity = 0.5;
-
-				// Leaving logic here commented out for color-coding the icons based on PAGER alert color...
-				// alertColor = "gray";
-				// if (feature.getProperty('alert') != null) {
-				// 	alertColor = feature.getProperty('alert');
-				// 	if (alertColor == "green") {
-				// 		alertColor = "limegreen";
-				// 	} else if (alertColor == "yellow") {
-				// 		alertColor = "rgb(209 209 43)";
-				// 	};
-				// };
-
-				if (quakeMode == "time") {
-					// Leaving logic here commented out for changing the icon's opacity based on recency...
-					// Calculate the icon's opacity based on how recent the quake occurred (newer = more opaque)...
-					let now = new Date();
-					let quakeTime = new Date(feature.getProperty('time'));
-					// Calculate seconds since the quake occurred...
-					let timeDiff = now - quakeTime;
-					// Calculate a scale based on seconds in a day...
-					let timeScale = (86400 * 12) / timeDiff * 100;
-					// Change icon opacity based on age of the event...
-					if (timeScale > iconOpacity) {
-						iconOpacity = timeScale;
-					}
-				} else {
-					let mag = feature.getProperty("mag");
-					// We'll use magnitude 7 as a the top of our scale (i.e. mag 7 will be full opacity, with lesser being more faded)...
-					let magScale = 1 - ((7 - mag) / 10);
-					if (magScale > 0.5) {
-						iconOpacity = magScale;
-					}
-				}
-				// console.debug(`Opacity of ${feature.getProperty("place")} (mag ${feature.getProperty("mag")}): ${iconOpacity}`);
-
-				return {
-					icon: {url: buildEarthquakeIconUrl(iconOpacity, alertColor), scaledSize: { width: 40, height: 40}, anchor: { x: 20, y: 20 } },
-				}
-			});
-
 			// Show earthquake info on click...
-			addOverlayDataListener('click', async function(event) {
+			addOverlayDataListener("click", async function(event) {
+				if (event.feature.getProperty("_overlayType") !== "earthquakes") return;
 				// Show an infowindow on click...
 				let quakeTime = new Date(event.feature.getProperty("time"));
 				let updated = new Date(event.feature.getProperty("updated"));
@@ -5816,12 +5851,10 @@ async function addWeatherLayer() {
 			} catch (error) {
 				console.error(`Map ${widgetID}: Failed to load earthquake data:`, error);
 			}
-		} else if (optionalMapType == "us-flooding") {
+		} if (optionalMapType == "us-flooding") {
 			// const countiesGeoJsonURL = `https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json?v=${Date.now()}`;
 			// const countyIDsJsonURL = `https://api.waterdata.usgs.gov/rtfi-api/counties?page=1&limit=4000&v=${Date.now()}`;
 			const floodingDataURL = `https://api.waterdata.usgs.gov/rtfi-api/referencepoints/flooding?v=${Date.now()}`;
-
-			clearOverlayState();
 
 			try {
 				// Fetch the flooding data from the USGS API...
@@ -5843,25 +5876,14 @@ async function addWeatherLayer() {
 								type: "Point",
 								coordinates: [parseFloat(entry.longitude), parseFloat(entry.latitude)]
 							},
-							properties: entry  // Store all entry data as feature properties
+							properties: Object.assign({}, entry, { _overlayType: "us-flooding" })
 						});
 						floodingFeatureCount++;
 					}
 				});
 
-				// Apply styling to the flooding Data layer...
-				map.data.setStyle({
-					icon: {
-						path: google.maps.SymbolPath.CIRCLE,
-						fillColor: '#87ceeb9c',
-						fillOpacity: 0.9,
-						strokeColor: '#4682b496',
-						strokeWeight: 1.0,
-						scale: 5
-					}
-				});
-
-				addOverlayDataListener('click', function(event) {
+				addOverlayDataListener("click", function(event) {
+					if (event.feature.getProperty("_overlayType") !== "us-flooding") return;
 					const feature = event.feature;
 					// Extract properties from the feature...
 					const data = {
@@ -5895,15 +5917,17 @@ async function addWeatherLayer() {
 			} catch (error) {
 				console.error(`Map ${widgetID}: Failed to fetch flooding data:`, error);
 			}
-		} else if (optionalMapType == "wafflehouse") {
+		} if (optionalMapType == "wafflehouse") {
 			try {
 				await loadWafflehouseOverlay();
 			} catch (error) {
 				console.error(`Map ${widgetID}: Failed to load Waffle House data:`, error);
 			}
-		} else {
-			clearOverlayState();
 		}
+
+	} // end selectedEvents loop
+
+	applyCombinedOverlayDataStyle();
 }
 
 // Function to fit the map around a cluster's bounds...
